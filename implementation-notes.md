@@ -119,3 +119,6 @@ On the owner's request after the repo went public, the README was rebuilt as a l
 - **Screenshot.** `docs/assets/board-light.png` and `board-dark.png` come from a throwaway board with example agents, run under a made-up local user name (a preload that patches `os.userInfo`, since `vb serve` takes the name from the OS). The page text was checked against the scan's denylist, and the PNGs carry no text chunks.
 - **`test/links.test.mjs`** resolves every relative link and anchor in the README, AGENTS.md, ARCHITECTURE.md and `docs/`, so moving a section can't leave a dead link.
 - **This file stays in the root**, next to the code it describes, which is where the owner's rules keep it.
+- **Rescan before the push** (`e06027e`): 44 files and 7 commits, 124 denylist terms. 593 hits, all of the kinds listed above (tool names, the clone URL and author line, `session_` in code). No secret, key, address, home path or session id. `gitleaks` found no leaks in the history or the tree. The two screenshots were checked by eye and carry no text chunks.
+- **Preview branch.** The pass was pushed to `readme-preview` first and checked on GitHub in both color schemes, then main was fast-forwarded to it. The branch was deleted at `7e1e406`.
+- **Diagram.** A left-to-right diagram rendered too small to read in GitHub's README column, so it is top-down with short edge labels.
