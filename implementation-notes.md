@@ -77,13 +77,13 @@ Result on the tree before the first commit (32 files, 10 rules, 109 denylist ter
 
 ### Final scan
 
-Run before the first push, after the work was squashed into one commit on top of the empty root commit. Squashing removed the earlier commits, so the history holds only what the tree holds; their objects were pruned before anything was pushed. One reason for it: an earlier version of the theme test named a local session in the regex it used to check for absent names.
+Before the first push, the work was squashed into one commit on top of the empty root commit. Squashing removed the earlier commits, so the history holds only what the tree holds; their objects were pruned before anything was pushed. The scan below was run again after the follow-up commit `34537e9`, on the pushed history. One reason for it: an earlier version of the theme test named a local session in the regex it used to check for absent names.
 
-- `node scripts/scan.mjs --deny <denylist>`: 35 files and the full history, 10 rules, 109 denylist terms. No secret, key, token, IP address, tailnet host, home path or session id. 186 hits, all expected. Each hit in the tree is counted again in the history, which is one commit of the same tree:
+- `node scripts/scan.mjs --deny <denylist>`: 35 files and the full history, 10 rules, 109 denylist terms. No secret, key, token, IP address, tailnet host, home path or session id. 188 hits, all expected. Each hit in the tree is counted again in the history:
   - `codex` (106) and `cursor` (50): the public tool name in the example config, the resume docs and tests, and the event-stream position.
   - `session_` (10): `SESSION_LABEL` in `src/wake/resume.mjs`, the scan's own rule, and this file.
   - `devin` and `hermes` (4 each): the left-out table names them as public tools.
-  - The author name in the commit metadata, `LICENSE` and the clone URL in `README.md` (10 in all, 4 of them in commit metadata).
+  - The author name in the commit metadata, `LICENSE` and the clone URL in `README.md` (12 in all, 6 of them in commit metadata).
   - One email-shaped string (2): a made-up address in the routing test that checks an address isn't read as a mention.
 - `gitleaks` 8.30.1, `gitleaks git` on the history and `gitleaks dir` on the tree: no leaks found.
 - Commit dates carry the committer's UTC offset, as every git commit does. The author is the GitHub noreply address.
