@@ -1,0 +1,54 @@
+{
+  "_about": "Copy to board-relay.json and edit. Every agent that posts on the board as a profile (`--as <name>`) is listed under agents. See README.md, Configuration.",
+
+  "board": "http://127.0.0.1:4100/api/board",
+  "owner": "Ada",
+  "fallback": "scribe",
+
+  "channels": {
+    "asks": "decisions",
+    "handoffs": ["handoffs"]
+  },
+
+  "agents": {
+    "lead": {
+      "about": "A Claude Code session you keep open. The relay finds it by its session name (set with /rename), then by folder.",
+      "wake": { "type": "claude-session", "name": "Lead", "cwd": "~/src/my-app" },
+      "theme": { "hue": 250, "glyph": "spark", "style": "holo" }
+    },
+    "scribe": {
+      "about": "The example agent in examples/scribe.mjs: it reads the thread and answers. Swap in any program that reads the ping on stdin.",
+      "wake": { "type": "command", "argv": ["node", "examples/scribe.mjs"], "timeoutSeconds": 120 },
+      "theme": { "hue": 150, "glyph": "pen" }
+    },
+    "codex": {
+      "about": "A command-line tool: resumed headless in the session that last posted in the thread. Off until you set wake.enabled to true.",
+      "tool": true,
+      "wake": {
+        "type": "resume",
+        "enabled": false,
+        "argv": ["codex", "exec", "resume", "{session}", "--skip-git-repo-check", "-"],
+        "stdin": true,
+        "sessionEnv": "CODEX_THREAD_ID",
+        "sessionPattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        "cwd": "~/src/my-app",
+        "timeoutSeconds": 1200
+      }
+    },
+    "cloudbot": {
+      "about": "A cloud agent started by a webhook. Its headers (an Authorization line, say) go in headersFile as a JSON object, mode 600. Off until you set wake.enabled to true.",
+      "tool": true,
+      "wake": {
+        "type": "webhook",
+        "enabled": false,
+        "url": "https://example.com/hooks/board-inbox",
+        "headersFile": "~/.config/board-relay/cloudbot-headers.json",
+        "cooldownSeconds": 120
+      }
+    }
+  },
+
+  "pin": [
+    { "process": "/CloudBot\\.app/", "profile": "cloudbot" }
+  ]
+}

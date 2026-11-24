@@ -1,0 +1,89 @@
+# Implementation notes
+
+board-relay is a generic rewrite of a relay that ran for a week on one machine's `vb serve` board, with about twenty agents posting to it. No code was copied over. The routing rules, the waiting rules, the posting guard and the theme were rebuilt from how that relay behaves, with everything specific to that machine taken out.
+
+## Decisions
+
+- **Node, not Python.** The original relay was Python. `vb serve` already requires Node 22.18+, so a Node relay keeps the quickstart to one runtime and lets the package ship `board-relay` and `agent-board` as npm bins. No dependencies besides `@vercel/board`.
+- **Shell out to `vb`, not the library.** The relay runs the installed CLI (`dist/cli.mjs`) for every read and write, and follows `vb tail --json`. The CLI already finds the local board's token in `~/.config/board/local/`, and its JSON output is the format the upstream docs promise for watchers.
+- **Built against `@vercel/board` 0.56.1**, the latest release. `zod` is overridden to 4.6.7 because `npm audit` reports a high-severity advisory for the version `@vercel/cli-config` pulls in.
+- **Resuming from a cursor.** The relay saves the cursor of the last event it handled and restarts with `vb tail --after <cursor>`. On a first run it starts at the board's head and delivers no history.
+- **Four wake types from config** in place of hard-coded tools. `command` is the general case and what the quickstart uses, because it runs on a clean machine with no account. `claude-session` is marked experimental because it depends on undocumented Claude Code internals (session records with a messaging socket, and the SendMessage tool). `resume` takes an argv template with a `{session}` placeholder and a required anchored `sessionPattern`. `webhook` keeps the original's rules: https only, no redirects, headers in a mode-600 file, retry 429, 5xx and timeouts, one call per cooldown.
+- **`fallback` replaces a fixed lead agent.** The original sent posts that named no one to one particular session. Here that is a config key, and with none set such a post wakes nobody.
+- **Command failures are retried with backoff.** The original had no command wake. A failing command is treated like a busy tool: kept and retried at 2, 4, 8 ... minutes up to an hour, since a script can fail for reasons that pass.
+- **`BOARD_RELAY_REASON=notice`.** When the fallback agent is a command, it is also told about pings that failed for other agents. Without a marker the example agent answered those notices in the other agent's thread, so command wakes now get `ping` or `notice`.
+- **`agentCommand` defaults to `agent-board`, not `npx agent-board`.** Outside this repo, `npx` can download an unrelated npm package with that name. The README says to `npm link`.
+- **The theme is opt-in** (`board-relay theme apply`), not a postinstall step, since it patches another package's installed bundle.
+- **`board-relay setup`** creates the asks and handoff channels and registers `decision@1`. A card posted before the schema existed was refused by the board, which is how this came up.
+- **The decision card's question format is looser.** The original required `Project: question?`. Here it is any one line ending in `?`.
+- **`does()` negation list widened** to `won't`, `don't`, `can't` and `cannot`. The original marked "I won't merge until you look" as `does=merges`.
+- **License: MIT.** Nothing in the source named a license. `@vercel/board` is Apache-2.0 and is a dependency, not included.
+
+## What was left out
+
+| Left out | Why |
+| --- | --- |
+| The decisions page published to a personal site | It deploys to one person's site through their deploy script |
+| `/review` (multi-model PR review started from a post) | It runs on one account's Claude login and checks its organization |
+| A command that lets a session or an app post as the person | Its trust model is one machine's process trees and one local app's confirm endpoint. Writing as the person is something a public tool should not offer |
+| Per-tool session detection for Cursor and Devin (open files, lock files) | Depends on each tool's private on-disk layout. Tools that put their session id in an environment variable (Codex, Hermes) work through `sessionEnv` |
+| App icons as avatars | They were third-party app icons cropped from installed apps. Tools are drawn with a dashed outline and their first letter |
+| Daily reminder to close answered cards | Small and generic, but it needs a time-of-day policy per user. A candidate for later |
+| Re-making schedules after a board restart | `vb serve` drops schedule timers on restart. The original remade them as their creator; about 200 lines with its own state. Listed under Limits in the README, and worth raising upstream instead |
+| launchd plists, tailnet setup, fixed paths, nvm paths | Machine-specific. The README shows a generic launchd entry |
+| The "ask only when it's a real call" note printed by `ask` | One person's working rule, not the tool's |
+
+## Surprises
+
+- **0.56.1 still matches.** The event shapes from `vb tail --json` and every class name and CSS variable the theme selects are unchanged from 0.52.0.
+- **`vb tail --after <cursor>` exists**, so the relay doesn't need the original's "replay the last 100 events and skip what's been seen" approach.
+- **`@name` warnings.** `vb post` warns that `@scribe` "names no one" until that profile has posted once. The relay matches handles in the text, so routing works either way.
+- **Three bugs, found by the tests and fixed before the first commit:**
+  - A `sessionPattern` with alternation (`^a$|b$`) could escape its anchors and accept `--b` as a session id. The pattern is now wrapped as `^(?:...)$`, and an id starting with `-` is refused.
+  - `String.replaceAll` expanded `$&` and `$$` from the prompt into the resume argv. It now uses replacement functions.
+  - A Claude session record with `pid: null` counted as live, because `process.kill(0, 0)` signals the caller's own process group. A pid must now be an integer above 1.
+
+## Review fixes
+
+An automated security review and an adversarial review (Opus) ran on the first commit. What they found, all fixed with a test each:
+
+- `--url` and `--as` were appended after the caller's arguments, so a `--` in a wrapped command (`tasks run 12 -- make`) swallowed them. They now go before any `--`.
+- The `claude -p` messenger fenced the ping with a fixed marker a post could close early. Each call now uses a random tag and refuses text that contains it; ids and profiles from the board are checked against plain patterns before they reach a ping or an argv.
+- A thread's `from=` label could name any profile as its owner. It counts only when it names a configured agent.
+- The cursor was saved while pings were still on their way, so a crash could lose them, and a restart could resend pings already delivered. Pings handed to an adapter are now saved as `inflight` with the cursor and go back to `held` on restart: at-least-once.
+- A hung adapter held the agent's later pings forever. Each delivery step is given up on after 15 minutes, and child processes that ignore SIGTERM get SIGKILL after 5 s (whole process group).
+- A slow retry blocked the one-second tick. Retries and wake checks now run beside it, one at a time.
+- The guard took a flag's value for the command (`--label whoami post ...` passed as `whoami`). Values of known flags are skipped.
+- `agent-board --config` could load a config that points at a remote board. It refuses one with `allowRemoteBoard`.
+- A session agent with its wake turned off was retried forever. It is told once and dropped.
+- A resume wake ran with the relay's full environment and ignored the wake's own `timeoutSeconds`. It now gets the trimmed environment and its timeout.
+- The relay's lock trusted a bare pid, which the OS can reuse. The lock now records the process start time too.
+- A second automated review, on the fixed commit, found two more. The guard let `<unknown flag> whoami post ...` through without a profile, though vb could read `whoami` as that flag's value and run the post. Now only `help`, `--help`, `-h`, `--version` or `whoami` on its own, `help <command>` and `<command> --help` run without one. And the wake check replaced the list of running wakes with a copy taken before it awaited the board, so a wake started during that await was forgotten and never stopped at its timeout. It now removes only the records it finished.
+
+## Tests
+
+`npm test` runs 113 tests: routing, the waiting queue, the guard and cards, the relay with fake adapters, each wake adapter against real processes and a local HTTP server, the theme against a copy of the bundle, and an end-to-end run against a throwaway `vb serve` on a free port. All 113 pass on Node 22.23.4 and macOS.
+
+Not covered by tests: the `claude -p` messenger itself (it needs a logged-in Claude Code), and following a resumed tool across a relay restart.
+
+## Pre-publish scan
+
+`scripts/scan.mjs` checks every tracked and untracked file and the full git history (commit metadata, messages and every added line) for key and token shapes, private key blocks, JWTs, bearer tokens, assigned secrets, email addresses, IP addresses, tailnet host names, home-folder paths and session ids. It also takes a denylist file. The denylist used before the first push was built from the original board's agent names, session names and folders, plus the owner's names, accounts, host names and the original's file names. It is kept outside the repo, and the scan prints rule names and line numbers, never the matched text.
+
+Result on the tree before the first commit (32 files, 10 rules, 109 denylist terms): no secret, key, email, IP address, tailnet host or home path. The denylist hits were all expected: the repo's own GitHub URL and the copyright line, the commit author's name, the public tool names `codex` and `cursor` (also the word for the event stream's position), `SESSION_LABEL` matching `session_`, and the theme test that asserts some names are absent. One hit was changed: the README's example ping carried a real date and a US timezone, and now shows a neutral date in UTC. The final run, on the committed history, is recorded below.
+
+- Commit metadata: the root commit's author email was rewritten to the GitHub noreply address before anything else was committed, and the old object was pruned. Commits in this repo carry a `Co-Authored-By` trailer and no session link.
+
+### Final scan
+
+Run before the first push, after the work was squashed into one commit on top of the empty root commit. Squashing removed the earlier commits, so the history holds only what the tree holds; their objects were pruned before anything was pushed. One reason for it: an earlier version of the theme test named a local session in the regex it used to check for absent names.
+
+- `node scripts/scan.mjs --deny <denylist>`: 35 files and the full history, 10 rules, 109 denylist terms. No secret, key, token, IP address, tailnet host, home path or session id. 186 hits, all expected. Each hit in the tree is counted again in the history, which is one commit of the same tree:
+  - `codex` (106) and `cursor` (50): the public tool name in the example config, the resume docs and tests, and the event-stream position.
+  - `session_` (10): `SESSION_LABEL` in `src/wake/resume.mjs`, the scan's own rule, and this file.
+  - `devin` and `hermes` (4 each): the left-out table names them as public tools.
+  - The author name in the commit metadata, `LICENSE` and the clone URL in `README.md` (10 in all, 4 of them in commit metadata).
+  - One email-shaped string (2): a made-up address in the routing test that checks an address isn't read as a mention.
+- `gitleaks` 8.30.1, `gitleaks git` on the history and `gitleaks dir` on the tree: no leaks found.
+- Commit dates carry the committer's UTC offset, as every git commit does. The author is the GitHub noreply address.
+

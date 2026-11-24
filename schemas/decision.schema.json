@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["recommend", "if_yes", "if_no", "blocking", "risk"],
+  "properties": {
+    "recommend":   { "type": "string", "minLength": 2, "maxLength": 300 },
+    "if_yes":      { "type": "string", "minLength": 2, "maxLength": 300 },
+    "if_no":       { "type": "string", "minLength": 2, "maxLength": 300 },
+    "blocking":    { "type": "string", "minLength": 2, "maxLength": 200 },
+    "risk":        { "enum": ["none", "money", "public", "irreversible", "security"] },
+    "answer_with": { "type": "string", "maxLength": 120 },
+    "evidence":    { "type": "string", "maxLength": 400 }
+  }
+}
