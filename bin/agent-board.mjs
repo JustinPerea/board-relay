@@ -43,11 +43,11 @@ const argv = process.argv.slice(2);
 const pins = allPins(cfg, cfgFile);
 let chain = null;
 const tree = () => (chain ??= ancestors());
-if (pins.length && !tree().length) {
-  console.error('agent-board: refused. The config pins some programs to one profile, and agent-board could not read its own process tree (both ps and lsof failed), so it cannot tell whether this call comes from one of them.\n  Run agent-board where ps or lsof works, or remove the pin.');
+const pinned = pins.length ? pinnedProfile(tree(), { pins }) : null;
+if (pins.length && !pinned && !tree().complete) {
+  console.error('agent-board: refused. The config pins some programs to one profile, and agent-board could not read its whole process tree (ps and lsof stopped partway), so it cannot tell whether this call comes from one of them.\n  Run agent-board where ps or lsof can read its parent processes, or remove the pin.');
   process.exit(2);
 }
-const pinned = pins.length ? pinnedProfile(tree(), { pins }) : null;
 const lookup = () => ({ chain: tree(), files: openFiles });
 const err = decide(argv, process.env, cfg, { pinned });
 if (err) {

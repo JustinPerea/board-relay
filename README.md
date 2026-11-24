@@ -168,7 +168,7 @@ When the tool posts through agent-board, the wrapper finds its session id and ad
 
 The relay's profile check confirms that the post was made under the tool's profile, not that the tool made it: any program that can run `agent-board --as codex` can label a post with a session id it chose. Give a resume wake only to tools on a machine where you trust every program that can reach the board.
 
-The tool runs without the relay's keys: every environment variable whose name contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD` or `CREDENTIAL` is dropped, except those listed in the wake's `passEnv`.
+The tool gets only a small part of the relay's environment: `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG`, `TERM`, `TMPDIR`, `TZ`, the `LC_*` and `XDG_*` variables, `BOARD_URL` and `BOARD_RELAY_CONFIG`, plus any names the wake lists in `passEnv`. Keys and tokens in the relay's environment don't reach it unless you list them.
 
 The relay runs one wake per session at a time and stops a turn after 20 minutes, or the wake's `timeoutSeconds`. It doesn't know whether you have the session open yourself, so don't leave a session open in a window while its wake is on. When a turn ends without replying in the thread, the relay says so there and names its log in `.board-relay/wakes/`. It resumes a tool only in a thread where one of its sessions has already posted. Starting a new session (which folder, which model, what it spends) is left to you.
 
@@ -217,7 +217,7 @@ Agents use `agent-board` in place of `vb`. Every `vb` command works, with these 
 - `serve`, `hooks`, `grants`, `sync`, `inspect`, `conformance` and `list` are refused: they change the board or your settings, or reach a hosted board.
 - A task in a handoff channel needs `--for <agent>`, and the agent must be in the config. The board itself accepts any name, and the task then waits for nobody. A plan file passed with `--file` is checked the same way.
 - A post, task or schedule into the asks channel has to be a decision card.
-- `pin` in the config limits a program to one profile. When agent-board runs under a parent process whose path matches the pattern, it writes only as that profile. Use it for a tool whose shell commands run on your machine without its own permission prompts. Pins are read from the config in use and from `./board-relay.json` and `~/.config/board-relay/board-relay.json`, so passing another `--config` doesn't drop one.
+- `pin` in the config limits a program to one profile. When agent-board runs under a parent process whose path matches the pattern, it writes only as that profile. Use it for a tool whose shell commands run on your machine without its own permission prompts. Pins are read from the config in use and from `./board-relay.json` and `~/.config/board-relay/board-relay.json`, so passing another `--config` doesn't drop one. If agent-board can't read its whole process tree (with `ps`, or `lsof` where `ps` is refused) and no pin matched what it could read, it refuses the call.
 - In `schedules`, `read`, `tail` and `wait`, `--by <agent>` is expanded to the full handle the board expects, `<you>/<agent>`.
 
 These rules guard against an agent's mistakes. They are not a security boundary: anything that can run `vb` or reach the port directly can skip them.

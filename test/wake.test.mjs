@@ -498,7 +498,8 @@ test('command: a program that ignores SIGTERM is killed, and the delivery still 
   }
 });
 
-test('a resumed tool gets no key-like variables unless its wake passes them', () => {
-  const env = resume.wakeEnv({ PATH: '/bin', HOME: '/h', OPENAI_API_KEY: 'k', GH_TOKEN: 't', DB_PASSWORD: 'p', CODEX_THREAD_ID: 'x' }, ['OPENAI_API_KEY']);
-  assert.deepEqual(env, { PATH: '/bin', HOME: '/h', OPENAI_API_KEY: 'k', CODEX_THREAD_ID: 'x' });
+test('a resumed tool gets a small base environment plus what its wake passes', () => {
+  const env = resume.wakeEnv({ PATH: '/bin', HOME: '/h', LC_ALL: 'C', XDG_DATA_HOME: '/d', OPENAI_API_KEY: 'k', GH_TOKEN: 't',
+    DATABASE_URL: 'postgres://u:p@h/db', GITHUB_PAT: 'p', CODEX_THREAD_ID: 'x', BOARD_URL: 'u' }, ['OPENAI_API_KEY']);
+  assert.deepEqual(env, { PATH: '/bin', HOME: '/h', LC_ALL: 'C', XDG_DATA_HOME: '/d', OPENAI_API_KEY: 'k' });
 });

@@ -11,7 +11,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, openSync, closeSync, readdirSync, statSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { vbEnv } from '../vb.mjs';
 
 export const SESSION_LABEL = 'session';
 
@@ -56,13 +55,15 @@ export function procStart(pid) {
 const lastId = (messages) => Math.max(0, ...Object.keys(messages).map(num));
 
 /** Start the resumed turn in the background and return its record (the caller saves it). */
-// Names that look like credentials. A woken tool signs in its own way (its login, a keychain, its config folder),
-// so the relay's own keys and tokens are not passed to it unless the wake lists them in passEnv.
-export const SECRET_NAME = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i;
+// What a resumed tool gets from the relay's environment: a small base set, plus the names the wake lists in
+// passEnv. A tool signs in its own way (its login, a keychain, its config folder), and a list of names to block
+// can't foresee every way a secret is named, so nothing else is passed.
+const WAKE_KEEP = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'TERM', 'TMPDIR', 'TZ'];
 
 export function wakeEnv(env, passEnv = []) {
   const out = {};
-  for (const [k, v] of Object.entries(env)) if (!SECRET_NAME.test(k) || passEnv.includes(k)) out[k] = v;
+  for (const [k, v] of Object.entries(env))
+    if (WAKE_KEEP.includes(k) || k.startsWith('LC_') || k.startsWith('XDG_') || passEnv.includes(k)) out[k] = v;
   return out;
 }
 
@@ -78,8 +79,7 @@ export async function startWake(agent, sid, items, prompt, cfg, { read, configFi
   for (const t of threads) before[t] = lastId((await read(t)).messages);
   const fd = openSync(log, 'w', 0o600);
   // the tool's own environment minus anything that would point vb elsewhere or lend it another identity
-  const childEnv = { ...wakeEnv(vbEnv(env), wake.passEnv), BOARD_URL: cfg.board, ...(configFile ? { BOARD_RELAY_CONFIG: configFile } : {}) };
-  delete childEnv.NO_COLOR;
+  const childEnv = { ...wakeEnv(env, wake.passEnv), BOARD_URL: cfg.board, ...(configFile ? { BOARD_RELAY_CONFIG: configFile } : {}) };
   let child;
   try {
     child = spawn(argv[0], argv.slice(1), { cwd: wake.cwd, env: childEnv, stdio: [stdin ? 'pipe' : 'ignore', fd, fd], detached: true });

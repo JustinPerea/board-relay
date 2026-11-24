@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 
 // Stopping a child process for good: SIGTERM to its group, then SIGKILL if it is still there after a grace period.
 // Callers resolve on their own timer, so a child that ignores both can't hold them.
@@ -13,16 +14,25 @@ export function stopGroup(child, grace = GRACE_MS) {
   t.unref?.();
 }
 
+// ps and lsof by absolute path with a fixed PATH, so a program can't answer for them by putting its own `ps` first.
+const firstOf = (paths) => paths.find((p) => existsSync(p)) ?? null;
+const PS = firstOf(['/bin/ps', '/usr/bin/ps']);
+const LSOF = firstOf(['/usr/sbin/lsof', '/usr/bin/lsof', '/sbin/lsof', '/bin/lsof']);
+const TOOL_ENV = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'C' };
+
+function call(run, bin, args, timeout) {
+  if (!bin) return '';
+  try { return String(run(bin, args, { encoding: 'utf8', timeout, env: TOOL_ENV })?.stdout ?? ''); } catch { return ''; }
+}
+
 /** One process from `lsof -p <pid> -FRfn`: its parent pid, its executable (the first `txt` entry) and the paths it
  *  holds open. lsof answers inside some sandboxes that refuse `ps` (Devin's, measured with devin 3000.14). */
-export function lsofInfo(pid, run = spawnSync) {
-  let r;
-  try { r = run('lsof', ['-p', String(pid), '-FRfn'], { encoding: 'utf8', timeout: 5000 }); } catch { r = null; }
+export function lsofInfo(pid, run = spawnSync, bin = LSOF) {
   let ppid = null;
   let exe = null;
   let fd = null;
   const files = [];
-  for (const line of String(r?.stdout ?? '').split('\n')) {
+  for (const line of call(run, bin, ['-p', String(pid), '-FRfn'], 5000).split('\n')) {
     const k = line[0];
     const v = line.slice(1);
     if (k === 'R') ppid = v;
@@ -35,27 +45,30 @@ export function lsofInfo(pid, run = spawnSync) {
   return { ppid, exe, files };
 }
 
-/** [[pid, command path]] from this process up to (not including) pid 1. Uses `ps`, or lsof where ps is refused.
- *  Empty when neither can read the process table. */
-export function ancestors(limit = 16, start = process.pid, run = spawnSync) {
+/**
+ * [[pid, command path]] from this process up to (not including) pid 1. Each step asks `ps`, and `lsof` where ps
+ * is refused. The array's `complete` is true only when the walk reached pid 1 (or 0): a walk that stopped partway
+ * may have missed an ancestor, so a pin check must not treat it as "no pinned parent".
+ */
+export function ancestors(limit = 64, start = process.pid, run = spawnSync, bins = { ps: PS, lsof: LSOF }) {
   const out = [];
+  out.complete = false;
   let pid = String(start);
   for (let i = 0; i < limit; i++) {
-    let r;
-    try { r = run('ps', ['-o', 'ppid=,comm=', '-p', pid], { encoding: 'utf8', timeout: 3000 }); } catch { r = null; }
-    const m = /^(\d+)\s+(.*)$/.exec(String(r?.stdout ?? '').trim());
-    if (!m) break;
-    out.push([pid, m[2]]);
-    if (m[1] === '0' || m[1] === '1') return out;
-    pid = m[1];
-  }
-  if (out.length) return out;
-  pid = String(start);
-  for (let i = 0; i < limit; i++) {
-    const { ppid, exe } = lsofInfo(pid, run);
+    let ppid = null;
+    let comm = null;
+    const m = /^(\d+)\s+(.*)$/.exec(call(run, bins.ps, ['-o', 'ppid=,comm=', '-p', pid], 3000).trim());
+    if (m) [, ppid, comm] = m;
+    else {
+      const info = lsofInfo(pid, run, bins.lsof);
+      if (info.ppid) [ppid, comm] = [info.ppid, info.exe ?? ''];
+    }
     if (!ppid) break;
-    out.push([pid, exe ?? '']);
-    if (ppid === '0' || ppid === '1') break;
+    out.push([pid, comm]);
+    if (ppid === '0' || ppid === '1') {
+      out.complete = true;
+      break;
+    }
     pid = ppid;
   }
   return out;
