@@ -4,7 +4,7 @@ board-relay is a generic rewrite of a relay that ran for a week on one machine's
 
 ## Decisions
 
-- **Node, not Python.** The original relay was Python. `vb serve` already requires Node 22.18+, so a Node relay keeps the quickstart to one runtime and lets the package ship `board-relay` and `agent-board` as npm bins. No dependencies besides `@vercel/board`.
+- **Node, not Python.** The original relay was Python. `vb serve` already requires Node (it declares 22.18+, but works from 22.20; see CI below), so a Node relay keeps the quickstart to one runtime and lets the package ship `board-relay` and `agent-board` as npm bins. No dependencies besides `@vercel/board`.
 - **Shell out to `vb`, not the library.** The relay runs the installed CLI (`dist/cli.mjs`) for every read and write, and follows `vb tail --json`. The CLI already finds the local board's token in `~/.config/board/local/`, and its JSON output is the format the upstream docs promise for watchers.
 - **Built against `@vercel/board` 0.56.1**, the latest release. `zod` is overridden to 4.6.7 because `npm audit` reports a high-severity advisory for the version `@vercel/cli-config` pulls in.
 - **Resuming from a cursor.** The relay saves the cursor of the last event it handled and restarts with `vb tail --after <cursor>`. On a first run it starts at the board's head and delivers no history.
@@ -148,6 +148,15 @@ The same agent-to-agent feature is live in the owner's local board relay (`local
 
 Open, nothing started:
 - The README's status table still has untested rows (Codex, Hermes, Grok Bot, Devin cloud, the Claude Code session messenger). Each needs a live run before its row changes.
-- No CI. `npm test` needs a local `vb serve`, so a GitHub Actions job would have to start one.
+- ~~No CI.~~ Added after the stop; see CI below.
 
 To pick it up: `npm ci && npm test`. Read `ARCHITECTURE.md`, then this file from the top.
+
+## CI (2026-11-24)
+
+`.github/workflows/test.yml` runs `npm ci && npm test` on Ubuntu and macOS, on Node 22.20.0 and the newest 22. The end-to-end test starts its own `vb serve`, so the job needs nothing else.
+
+- **The Node floor is 22.20, not 22.18.** `@vercel/board` 0.56.1 declares `node >=22.18`, and so did this repo. On Node 22.18.0 and 22.19.0, `vb serve` logs `ERR_SQLITE_ERROR: column index out of range` from `node:sqlite` for every event its table writer applies, retries, and gives up on the write after 10 seconds ("the tables haven't applied #2 yet"). Each `vb post` then takes 10.1 s and `vb read` does not answer. 22.20.0, 22.21.0, 22.22.0 and 22.23.4 answer in about 140 ms. The bisect ran on macOS arm64 with each release's checksummed tarball: `vb serve` on the release under test, the client on 22.23.4. The board's code prepares its queries with numbered parameters (`dist/sqlite-db-*.mjs`); which `node:sqlite` change in 22.20 fixed them was not looked up. It has not been reported upstream, which needs the owner's yes.
+- `package.json` engines, the lockfile root, the README badge and quickstart, AGENTS.md and the CI matrix now say 22.20. `test/node-floor.test.mjs` fails when any of them disagrees with `engines`, and CI runs that exact version, so a copied 22.18 can't come back unnoticed.
+- **A race in the e2e test, seen only on the macOS runner:** the bell goes on the person's post after the wake returns, and a command wake like scribe's has already replied by then. The test waited for the reply alone and then asserted the bell. It now waits for both.
+- `after()` used to wait for `'close'` from a `vb serve` that had already exited, which hung the whole file with no subtest output. It now checks the exit code first and kills after 5 s.

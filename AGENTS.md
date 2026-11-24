@@ -22,7 +22,7 @@ If a command or permission is refused, stop and tell the person. Don't work arou
 ## 1. Check the basics
 
 ```bash
-node --version        # 22.18 or later
+node --version        # 22.20 or later; vb serve stalls on 22.18 and 22.19
 git --version
 npm install           # in this repo; installs @vercel/board, the only dependency
 npm test              # optional; starts throwaway boards on free ports

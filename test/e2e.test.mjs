@@ -54,7 +54,15 @@ before(async () => {
     { stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   serve.stdout.on('data', (d) => { out += d; });
-  await until('vb serve', () => out.includes('serving a local board'), 20000);
+  serve.stderr.on('data', (d) => { out += d; });
+  try {
+    await until('vb serve', () => {
+      if (serve.exitCode !== null) throw new Error(`vb serve exited (${serve.exitCode})`);
+      return out.includes('serving a local board');
+    }, 20000);
+  } catch (error) {
+    throw new Error(`${error.message}. Its output:\n${out}`);
+  }
 
   writeFileSync(join(dir, 'lead-inbox.sh'), `#!/bin/sh\ncat >> "${join(dir, 'lead-inbox.txt')}"\n`, { mode: 0o755 });
   writeFileSync(join(dir, 'board-relay.json'), JSON.stringify({
@@ -71,8 +79,9 @@ before(async () => {
     },
   }));
   const file = join(dir, 'board-relay.json');
-  const setup = spawnSync(process.execPath, [join(root, 'bin/board-relay.mjs'), 'setup', '--config', file], { encoding: 'utf8' });
-  assert.equal(setup.status, 0, setup.stdout + setup.stderr);
+  const setup = spawnSync(process.execPath, [join(root, 'bin/board-relay.mjs'), 'setup', '--config', file],
+    { encoding: 'utf8', timeout: 60000 });
+  assert.equal(setup.status, 0, `board-relay setup: ${setup.error ?? ''} ${setup.signal ?? ''}\n${setup.stdout}${setup.stderr}`);
   relay = new Relay(loadConfig(file), { configFile: file });
   running = relay.run({ signal: ac.signal });
   // The relay starts at the board's head on its first run. Give the event stream a moment to open.
@@ -82,8 +91,13 @@ before(async () => {
 after(async () => {
   ac.abort();
   await running?.catch(() => {});
-  serve?.kill('SIGINT');
-  await new Promise((r) => serve?.once('close', r) ?? r());
+  // a board that already exited never sends 'close' again: waiting for it hung the whole file
+  if (serve && serve.exitCode === null && serve.signalCode === null) {
+    const closed = new Promise((r) => serve.once('close', r));
+    serve.kill('SIGINT');
+    await Promise.race([closed, new Promise((r) => setTimeout(r, 5000))]);
+    if (serve.exitCode === null && serve.signalCode === null) serve.kill('SIGKILL');
+  }
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -91,12 +105,13 @@ test('the person mentions an agent: it is pinged, the post gets a bell, and the 
   const r = await person(['post', 'lanes', '@scribe what is in here?']);
   assert.equal(r.code, 0, r.stderr);
   const id = r.stdout.trim().split(/\s+/)[0];
-  const msgs = await until('scribe to reply', async () => {
+  // The bell goes on after the wake returns, and a command wake like scribe's has already replied by then: wait
+  // for both, or a slow machine reads the thread between the two.
+  const msgs = await until('scribe to reply and the bell receipt', async () => {
     const m = await thread(id);
-    return m.some((x) => x.by?.profile === 'scribe') && m;
+    return m.some((x) => x.by?.profile === 'scribe') && Object.keys(m[0].reactions ?? {}).length > 0 && m;
   });
   assert.match(msgs.find((x) => x.by?.profile === 'scribe').text, /scribe here: I read #/);
-  assert.ok(Object.keys(msgs[0].reactions ?? {}).length > 0, 'the bell receipt is on the post');
 });
 
 test('a handoff: the agent it is for does it, and the agent that asked hears it completed', async () => {

@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <img alt="Node 22.18 or later" src="https://img.shields.io/badge/node-%E2%89%A522.18-339933">
+  <img alt="Node 22.20 or later" src="https://img.shields.io/badge/node-%E2%89%A522.20-339933">
 </p>
 
 <p align="center">
@@ -69,7 +69,7 @@ Give any coding agent this repo and point it at [AGENTS.md](AGENTS.md). It is wr
 
 ## Quickstart
 
-You need Node 22.18 or later, and git. The steps start a board, the relay, and two agents: `scribe`, a small example script that needs no account, and `lead`, a Claude Code session if you have Claude Code.
+You need Node 22.20 or later, and git. `vb serve` declares 22.18, but on 22.18 and 22.19 its database calls fail and each post takes 10 seconds. The steps start a board, the relay, and two agents: `scribe`, a small example script that needs no account, and `lead`, a Claude Code session if you have Claude Code.
 
 ```bash
 git clone https://github.com/JustinPerea/board-relay && cd board-relay
