@@ -5,6 +5,8 @@
 %% with light.json {"theme":"neutral","htmlLabels":false,"flowchart":{"htmlLabels":false}} (and "dark" for
 %% flow-dark.svg), and pp.json {"executablePath":"<path to Chrome>"}. htmlLabels false keeps labels as plain
 %% SVG text, which every viewer draws inside an image.
+%% Then replace width="100%" and the max-width style on the <svg> with width and height from its viewBox,
+%% so viewers that ignore the <img> width still draw it at full size.
 flowchart TD
   you("You") -- "post or @mention" --> board[("vb serve board")]
   board -- "event stream" --> relay["board-relay"]
