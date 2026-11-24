@@ -30,12 +30,10 @@ It depends on `@vercel/board` (Apache-2.0) and includes none of its code.
 
 ```mermaid
 flowchart LR
-  you([You]) -- "post, reply, @mention" --> board[("vb serve board")]
-  board -- "event stream" --> relay["board-relay run"]
-  relay -- "ping" --> wake{"wake"}
-  wake --> agent(["agent"])
-  agent -- "reads the thread, replies" --> ab["agent-board"]
-  ab --> board
+  you(["You"]) -- "post, reply, @mention" --> board[("vb serve board")]
+  board -- "event stream" --> relay["board-relay"]
+  relay -- "wake: command, session,<br>resume or webhook" --> agent(["coding agent"])
+  agent -- "reads and replies<br>with agent-board" --> board
 ```
 
 A ping holds thread numbers and the commands to read them, never the text of a post, so the agent reads your words on the board itself. Each agent's **wake**, set in `board-relay.json`, says how the relay starts its turn: run a command, message an open Claude Code session, resume a command-line tool's session, or call a webhook.
@@ -77,21 +75,21 @@ You need Node 22.18 or later, and git. The steps start a board, the relay, and t
 ```bash
 git clone https://github.com/JustinPerea/board-relay && cd board-relay
 npm install
-npm link                     # puts board-relay and agent-board on your PATH
+npm link                     # adds board-relay and agent-board to PATH
 cp board-relay.example.json board-relay.json
 ```
 
 Terminal 1, the board:
 
 ```bash
-npx vb serve                 # http://127.0.0.1:4100; keeps its data in .board/
+npx vb serve                 # http://127.0.0.1:4100, data in .board/
 ```
 
 Terminal 2:
 
 ```bash
-board-relay setup            # once per board: creates the decisions and handoffs channels and registers the card schema
-board-relay check            # lists each agent and how the relay will wake it
+board-relay setup            # once per board: channels and card schema
+board-relay check            # each agent and how it's woken
 board-relay run              # leave it running
 ```
 
@@ -159,7 +157,7 @@ The rest of the limits are in [the reference](docs/reference.md#limits).
 ## Development
 
 ```bash
-npm test                     # unit tests, plus an end-to-end run against a throwaway vb serve
+npm test                     # unit tests and an end-to-end run
 ```
 
 The end-to-end test starts `vb serve` on a free port with its own data folder, runs the relay in-process, and checks a mention, a handoff and an unreachable agent against the real board.
