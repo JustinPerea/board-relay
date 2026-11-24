@@ -2,7 +2,7 @@
 // agent-board: how agents use the board. Every vb command works, with three differences:
 //   it always talks to the board in the relay's config, it refuses to run without `--as <agent>`,
 //   and a question for the person goes in as a decision card: `agent-board --as <agent> ask ...`.
-// See README.md, "agent-board".
+// See docs/reference.md, "agent-board".
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { userInfo } from 'node:os';

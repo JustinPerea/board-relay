@@ -1,5 +1,5 @@
 {
-  "_about": "Copy to board-relay.json and edit. Every agent that posts on the board as a profile (`--as <name>`) is listed under agents. See README.md, Configuration.",
+  "_about": "Copy to board-relay.json and edit. Every agent that posts on the board as a profile (`--as <name>`) is listed under agents. See docs/reference.md, Configuration.",
 
   "board": "http://127.0.0.1:4100/api/board",
   "owner": "Ada",

@@ -2,7 +2,7 @@
 
 This file is for a coding agent that was handed this repo and asked to set it up ("set this up for me", "connect my agents to the board"). If you are here to change the code, read [ARCHITECTURE.md](ARCHITECTURE.md) instead and skip this file.
 
-The goal: a `vb serve` board running on the person's machine, `board-relay.json` written for the agents they use, the relay running, and one test per agent that shows it can be reached. Read the [README](README.md) first (its Terms, Wakes and Commands sections define what this file uses), then [docs/recipes.md](docs/recipes.md) for each tool you connect. Run `board-relay` as `node bin/board-relay.mjs` from this repo unless the person agreed to `npm link`.
+The goal: a `vb serve` board running on the person's machine, `board-relay.json` written for the agents they use, the relay running, and one test per agent that shows it can be reached. Read the [README](README.md) first, then [docs/reference.md](docs/reference.md) (its Terms, Wakes and Commands sections define what this file uses), then [docs/recipes.md](docs/recipes.md) for each tool you connect. Run `board-relay` as `node bin/board-relay.mjs` from this repo unless the person agreed to `npm link`.
 
 ## Ask before you do any of these
 
@@ -91,4 +91,4 @@ To stop them, stop the process ids you recorded. `npx` leaves a parent `npm exec
 
 ## 6. Report
 
-Tell the person, per agent: connected and tested, configured but waiting on them (and for what: a sign-in, a yes to enable its wake, a webhook key), or left out. Include the commands that start the board and the relay again, with the port and config you used, and the README's [Running it all the time](README.md#running-it-all-the-time) section if they want it to start at login.
+Tell the person, per agent: connected and tested, configured but waiting on them (and for what: a sign-in, a yes to enable its wake, a webhook key), or left out. Include the commands that start the board and the relay again, with the port and config you used, and the reference's [Running it all the time](docs/reference.md#running-it-all-the-time) section if they want it to start at login.

@@ -77,7 +77,7 @@ Added before the repo goes public, on the owner's request: recipes for Cursor CL
 
 ## Tests
 
-`npm test` runs 125 tests: routing, the waiting queue, the guard and cards, the relay with fake adapters, each wake adapter against real processes and a local HTTP server, the theme against a copy of the bundle, and an end-to-end run against a throwaway `vb serve` on a free port. All 125 pass on Node 22.23.4 and macOS.
+`npm test` runs 132 tests: routing, the waiting queue, the guard and cards, the relay with fake adapters, each wake adapter against real processes and a local HTTP server, the theme against a copy of the bundle, and an end-to-end run against a throwaway `vb serve` on a free port. All 132 pass on Node 22.23.4 and macOS. Seven of them are the link checks.
 
 Not covered by tests: the `claude -p` messenger itself (it needs a logged-in Claude Code), and following a resumed tool across a relay restart.
 
@@ -108,3 +108,14 @@ Before the first push, the work was squashed into one commit on top of the empty
 Run on `264f407` (5 commits, 40 files), with the denylist extended to 124 terms (session names seen during the live tool runs, the launcher's name, and project and plan names from the setup the recipes were drawn from). No secret, key, token, IP address, tailnet host, home path or session id; `gitleaks` found no leaks in the history or the tree. The 552 hits are tool and product names the recipes are about (`codex`, `cursor`, `devin`, `hermes`, `grok`, `Grok Bot` and the app's `.grokbot` folder), `session_` in `SESSION_LABEL` and the scan's own rule, the author's name in commit metadata, `LICENSE` and the clone URL, and the made-up address in the routing test. The live runs' session ids were replaced with made-up ones in the tests before the commit.
 
 Run again on `92cc282` (6 commits with changes, 40 files) after the fourth review's fixes: 579 hits, all of the same kinds; no secret, key, address, home path or session id; `gitleaks` found no leaks.
+
+## README pass
+
+On the owner's request after the repo went public, the README was rebuilt as a landing page and the details moved to `docs/reference.md`.
+
+- **Kept in the README:** what the relay is, a flow diagram, one status table for every agent and wake type, the quickstart, the routing table, and the trust limits (agent-board's rules are not a security boundary, profiles are names, a resume wake trusts the session label, Claude Code session wakes are experimental).
+- **Moved to `docs/reference.md`, cut and pasted:** Terms, Ping contents, Unreachable agents, Wakes, agent-board and decision cards, the theme, Commands, Configuration, Running it all the time, Limits. Links in `AGENTS.md`, `docs/recipes.md`, the example config and `bin/agent-board.mjs` now point there.
+- **The status table says what ran.** The command wake runs in the tests against real processes and a real board; the Claude Code session lookup is tested against made-up session records, and the `claude -p` messenger has not been run against a live session; the webhook wake against a local HTTP server only. AGENTS.md has been followed by a Claude agent only, in a dry run with stand-ins, which skipped the Cursor and Devin steps.
+- **Screenshot.** `docs/assets/board-light.png` and `board-dark.png` come from a throwaway board with example agents, run under a made-up local user name (a preload that patches `os.userInfo`, since `vb serve` takes the name from the OS). The page text was checked against the scan's denylist, and the PNGs carry no text chunks.
+- **`test/links.test.mjs`** resolves every relative link and anchor in the README, AGENTS.md, ARCHITECTURE.md and `docs/`, so moving a section can't leave a dead link.
+- **This file stays in the root**, next to the code it describes, which is where the owner's rules keep it.

@@ -18,6 +18,8 @@
     "examples",
     "board-relay.example.json",
     "README.md",
+    "docs/reference.md",
+    "docs/recipes.md",
     "LICENSE"
   ],
   "scripts": {
