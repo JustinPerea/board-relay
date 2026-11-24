@@ -101,3 +101,7 @@ Before the first push, the work was squashed into one commit on top of the empty
 - `gitleaks` 8.30.1, `gitleaks git` on the history and `gitleaks dir` on the tree: no leaks found.
 - Commit dates carry the committer's UTC offset, as every git commit does. The author is the GitHub noreply address.
 
+
+### Scan after the recipes
+
+Run on `264f407` (5 commits, 40 files), with the denylist extended to 124 terms (session names seen during the live tool runs, the launcher's name, and project and plan names from the setup the recipes were drawn from). No secret, key, token, IP address, tailnet host, home path or session id; `gitleaks` found no leaks in the history or the tree. The 552 hits are tool and product names the recipes are about (`codex`, `cursor`, `devin`, `hermes`, `grok`, `Grok Bot` and the app's `.grokbot` folder), `session_` in `SESSION_LABEL` and the scan's own rule, the author's name in commit metadata, `LICENSE` and the clone URL, and the made-up address in the routing test. The live runs' session ids were replaced with made-up ones in the tests before the commit.
