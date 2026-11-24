@@ -101,10 +101,14 @@ export class Relay {
     const author = String(msg.by?.profile ?? '').toLowerCase();
     const byAgent = ev.type === 'message.posted' && cfg.agentPosts.enabled && Boolean(cfg.agents[author]) && !byPerson;
     const thread = (byPerson || byAgent) && msg.id ? (await this.board.readThread(msg.re ?? msg.id)).messages : {};
-    if (byPerson && msg.id) limits.personActed(this.state.agentPosts, msg.re ?? msg.id);
+    // a person's own post or task action, not a reaction or an agent's action on the person's post
+    const personActed = ev.type === 'message.posted' || ev.type === 'message.edited' ? isPerson(msg.by)
+      : ev.type?.startsWith('task.') && isPerson(ev.payload?.by);
+    if (personActed && msg.id) limits.personActed(this.state.agentPosts, msg.re ?? msg.id);
     const [targets, item] = route(ev, thread, cfg);
     const pairs = (targets ?? []).map((a) => [a, item]);
-    if (byAgent) pairs.push(...await this.admitAgentPosts(routeAgentPost(ev, thread, cfg)));
+    const notices = [];
+    if (byAgent) pairs.push(...this.admitAgentPosts(routeAgentPost(ev, thread, cfg), cfg, notices));
     const gone = ev.type === 'task.failed' || ev.type === 'task.canceled';
     if (gone || (!byPerson && cfg.handoffs.includes(msg.channel)))
       pairs.push(...routeHandoff(ev, gone ? await this.board.waitingOn(msg.id, profileOf) : [], cfg));
@@ -120,35 +124,40 @@ export class Relay {
       h.items.push(it);
       h.last = now;
     }
+    for (const [thread, text] of notices) await this.board.reply(thread, text);
     return pairs;
   }
 
-  /** The agent-post pairs the limits let through. A limit or a tool that hasn't opted in is said once in the thread,
-   *  so the agent that posted knows its post woke nobody. */
-  async admitAgentPosts(pairs) {
-    const cfg = this.cfg;
+  /** The agent-post pairs the limits let through. Decided without waiting, so the counts and the held pings are
+   *  saved together. A limit, a tool's post to a tool, or an agent that takes no such wakes is said once in the
+   *  thread (pushed to `notices`), so the agent that posted knows its post woke nobody. */
+  admitAgentPosts(pairs, cfg, notices) {
     const st = this.state.agentPosts;
     const now = this.clock();
     const out = [];
     for (const [agent, item] of pairs) {
       const entry = cfg.agents[agent];
-      if (!entry.wakeOnAgentPosts) {
+      if (!entry) continue;
+      const fromTool = entry.tool && causedByTool(item, cfg);
+      if (!entry.wakeOnAgentPosts || fromTool) {
         const told = limits.threadOf(st, item.thread, now).told;
         if (told.includes(agent)) continue;
         told.push(agent);
-        this.note(`not woken agent=${agent} thread=${item.thread}: it takes no wakes from agents' posts`);
-        await this.board.reply(item.thread, entry.tool
-          ? `Relay: \`${agent}\` is a tool, and the relay wakes a tool for an agent's post only when its config sets \`wakeOnAgentPosts\` to true. To hand it work, make a task for it in a handoff channel.`
-          : `Relay: \`${agent}\` is set not to be woken by agents' posts (\`wakeOnAgentPosts\` is false). To hand it work, make a task for it in a handoff channel.`);
+        this.note(`not woken agent=${agent} thread=${item.thread}: ${fromTool ? 'a tool\'s post' : 'it takes no wakes from agents\' posts'}`);
+        notices.push([item.thread, fromTool
+          ? `Relay: \`${agent}\` was not woken. A tool's post never wakes another tool, so two tools can't start each other in a loop.`
+          : entry.tool
+            ? `Relay: \`${agent}\` is a tool, and the relay wakes a tool for an agent's post only when its config sets \`wakeOnAgentPosts\` to true. To hand it work, make a task for it in a handoff channel.`
+            : `Relay: \`${agent}\` is set not to be woken by agents' posts (\`wakeOnAgentPosts\` is false). To hand it work, make a task for it in a handoff channel.`]);
         continue;
       }
       const r = limits.admit(st, agent, item, cfg.agentPosts, now);
       if (r.ok) { out.push([agent, item]); continue; }
       this.note(`not woken agent=${agent} thread=${item.thread}: the ${r.why === 'hour' ? 'hourly' : 'thread'} limit on agents waking agents`);
       if (!r.notice) continue;
-      await this.board.reply(item.thread, r.why === 'hour'
+      notices.push([item.thread, r.why === 'hour'
         ? `Relay: agents' posts have woken agents ${cfg.agentPosts.perHour} times in the last hour, the most the relay allows (\`agentPosts.perHour\`), so \`${agent}\` was not woken. Agents' posts wake nobody until the hour's count drops; posts by ${cfg.owner} and tasks still do.`
-        : `Relay: agents have woken each other in this thread as often as the relay allows without ${cfg.owner} (\`agentPosts.perThread\` is ${cfg.agentPosts.perThread}), so \`${agent}\` was not woken. Agents' posts here wake nobody until ${cfg.owner} posts in this thread or acts on its task. Tasks still wake agents.`);
+        : `Relay: agents have woken each other in this thread as often as the relay allows without ${cfg.owner} (\`agentPosts.perThread\` is ${cfg.agentPosts.perThread}), so \`${agent}\` was not woken. Agents' posts here wake nobody until ${cfg.owner} posts in this thread or acts on its task. Tasks still wake agents.`]);
     }
     return out;
   }
@@ -249,7 +258,9 @@ export class Relay {
     }
     if (firstTry) {
       this.note(`undelivered agent=${agent} threads=${threads.join(',')}: ${r.why}${r.detail ? ` [${r.detail.replace(/\s+/g, ' ').slice(-160)}]` : ''}`);
-      const fb = cfg.fallback && cfg.fallback !== agent ? cfg.fallback : null;
+      // the fallback hears about a person's words or task news, not about agents' posts to each other, which the
+      // agentPosts limits govern
+      const fb = cfg.fallback && cfg.fallback !== agent && items.some((i) => i.kind !== 'agent') ? cfg.fallback : null;
       let tail = '';
       if (r.retry && listed) tail = r.busy ? ' I\'ll try again until it goes through.' : ` I'll hold the ping until \`${agent}\` is back.`;
       if (fb && !r.busy) tail += ` \`${fb}\` has been told.`;

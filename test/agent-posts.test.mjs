@@ -127,12 +127,13 @@ test('limits: a person acting in the thread starts its count again', () => {
   assert.equal(limits.admit(st, 'scribe', it(1, 'lead'), L, 11).ok, true);
 });
 
-test('limits: at most perHour wakes across the board in an hour, said once an hour per thread', () => {
+test('limits: at most perHour wakes across the board in an hour, said once an hour', () => {
   const st = limits.emptyLimits();
   const hourly = { ...L, perHour: 3 };
   for (let i = 0; i < 3; i++) assert.equal(limits.admit(st, 'scribe', it(10 + i, 'lead'), hourly, 1000 * i).ok, true);
   assert.deepEqual(limits.admit(st, 'scribe', it(20, 'lead'), hourly, 5000), { ok: false, why: 'hour', notice: true });
   assert.deepEqual(limits.admit(st, 'helper', it(20, 'lead'), hourly, 6000), { ok: false, why: 'hour', notice: false });
+  assert.deepEqual(limits.admit(st, 'helper', it(21, 'lead'), hourly, 7000), { ok: false, why: 'hour', notice: false }, 'a new thread is not told again');
   assert.equal(limits.admit(st, 'scribe', it(20, 'lead'), hourly, 3600 * 1000 + 1).ok, true, 'the first wake left the window');
 });
 
@@ -173,7 +174,7 @@ test('ping: an agent\'s post is the agent\'s word, with the limit and how to ans
 
 // ---------------------------------------------------------------- relay
 
-function setup(raw = {}) {
+function setup(raw = {}, { leadUp = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'br-ap-'));
   dirs.push(dir);
   const c = normalize({ owner: 'Ada', agents: agents(), stateDir: 'state', ...raw }, dir);
@@ -193,15 +194,19 @@ function setup(raw = {}) {
   const relay = new Relay(c, {
     board, clock: () => t.now, note: () => {},
     adapters: {
-      claude: { deliver: async (agent, text) => ok(agent, [{ text }]), reachable: () => true },
+      claude: {
+        deliver: async (agent, text) => (leadUp ? ok(agent, [{ text }]) : { ok: false, why: `\`${agent}\` has no live session right now`, away: true }),
+        reachable: () => leadUp,
+      },
       command: { deliver: async (agent, text, items) => ok(agent, items) },
       webhook: { deliver: async (agent, items) => ok(agent, items) },
       resume: { recordedSession: async () => ({ why: 'none' }), startWake: async () => { throw new Error('no'); }, checkWakes: async () => false },
     },
   });
-  const feed = async (m) => { store[m.id] = m; return relay.onEvent(ev(m)); };
+  const feed = async (m, type) => { store[m.id] = m; return relay.onEvent(ev(m, type)); };
+  const feedEv = async (e) => { if (e.message?.id && !store[e.message.id]) store[e.message.id] = e.message; return relay.onEvent(e); };
   const flush = async (ms = 7000) => { t.now += ms; await relay.flushHeld(); };
-  return { relay, rec, calls, t, feed, flush, cfg: c };
+  return { relay, rec, calls, t, feed, feedEv, flush, cfg: c };
 }
 
 test('relay: an agent mentioning another wakes it, and marks no card answered', async () => {
@@ -292,4 +297,48 @@ test('relay: an old state file with no agentPosts loads', () => {
   fs.writeFileSync(path.join(s.cfg.stateDir, 'state.json'), JSON.stringify({ cursor: '5', held: {}, inflight: [], pending: [] }));
   s.relay.load();
   assert.deepEqual(s.relay.state.agentPosts, limits.emptyLimits());
+});
+
+test('relay: a tool\'s post to an opted-in tool is not counted, is said once, and tells no fallback', async () => {
+  const s = setup({ fallback: 'lead' });
+  await s.feed(post(1, as('hook'), { text: '@eager run it' }));
+  await s.feed(post(2, as('hook'), { re: '1', text: '@eager again' }));
+  await s.flush();
+  assert.deepEqual(s.calls, []);
+  assert.equal(s.relay.state.agentPosts.recent.length, 0);
+  assert.equal(s.rec.replies.length, 1);
+  assert.match(s.rec.replies[0].text, /A tool's post never wakes another tool/);
+});
+
+test('relay: an agent-post ping to an unreachable agent waits, and the fallback is not woken for it', async () => {
+  const s = setup({ fallback: 'scribe' }, { leadUp: false });
+  await s.feed(post(1, as('helper'), { text: '@lead results are in #4' }));
+  await s.flush();
+  assert.deepEqual(s.calls.map((c) => c.agent), [], 'scribe, the fallback, is not run');
+  assert.match(s.rec.replies.at(-1).text, /`lead` was not pinged/);
+  assert.doesNotMatch(s.rec.replies.at(-1).text, /has been told/);
+  assert.equal(s.relay.state.pending.length, 1);
+});
+
+test('relay: only a person\'s own post or task action resets a thread, not a reaction or an agent\'s task action', async () => {
+  const s = setup({ agentPosts: { perThread: 1, cooldownSeconds: 0 } });
+  const root = post(1, PERSON, { text: 'lead and scribe, sort it out' });
+  await s.feed(root);
+  await s.feed(post(2, as('lead'), { re: '1', text: '@scribe one' }));
+  await s.feed(post(3, as('lead'), { re: '1', text: '@scribe two' }));
+  assert.equal(s.relay.state.agentPosts.threads['1'].capped, true);
+  // an agent reacting to the person's root: the event carries the person's post
+  await s.feedEv({ cursor: '9', type: 'reaction.added', message: root, payload: { by: as('lead'), emoji: 'thumbsup' } });
+  await s.feedEv({ cursor: '10', type: 'task.completed', message: { ...root, task: { state: 'completed' } }, payload: { id: '1', by: as('scribe') } });
+  assert.equal(s.relay.state.agentPosts.threads['1'].capped, true);
+  await s.feed(post(4, PERSON, { re: '1', text: 'again' }));
+  assert.equal(s.relay.state.agentPosts.threads['1'], undefined);
+});
+
+test('relay: an agent removed from the config while an event is read is skipped, the rest still routed', async () => {
+  const s = setup();
+  const notices = [];
+  const fewer = normalize({ owner: 'Ada', agents: { lead: agents().lead, scribe: agents().scribe } }, '/tmp');
+  const pairs = routeAgentPost(ev(post(1, as('lead'), { text: '@helper @scribe go' })), {}, s.cfg);
+  assert.deepEqual(s.relay.admitAgentPosts(pairs, fewer, notices).map(([a]) => a), ['scribe']);
 });

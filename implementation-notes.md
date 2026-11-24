@@ -77,7 +77,7 @@ Added before the repo goes public, on the owner's request: recipes for Cursor CL
 
 ## Tests
 
-`npm test` runs 132 tests: routing, the waiting queue, the guard and cards, the relay with fake adapters, each wake adapter against real processes and a local HTTP server, the theme against a copy of the bundle, and an end-to-end run against a throwaway `vb serve` on a free port. All 132 pass on Node 22.23.4 and macOS. Seven of them are the link checks.
+`npm test` runs 155 tests: routing, agents waking agents and its limits, the waiting queue, the guard and cards, the relay with fake adapters, each wake adapter against real processes and a local HTTP server, the theme against a copy of the bundle, and an end-to-end run against a throwaway `vb serve` on a free port. All 155 pass on Node 22.23.4 and macOS. Seven of them are the link checks.
 
 Not covered by tests: the `claude -p` messenger itself (it needs a logged-in Claude Code), and following a resumed tool across a relay restart.
 
@@ -122,3 +122,16 @@ On the owner's request after the repo went public, the README was rebuilt as a l
 - **Rescan before the push** (`e06027e`): 44 files and 7 commits, 124 denylist terms. 593 hits, all of the kinds listed above (tool names, the clone URL and author line, `session_` in code). No secret, key, address, home path or session id. `gitleaks` found no leaks in the history or the tree. The two screenshots were checked by eye and carry no text chunks.
 - **Preview branch.** The pass was pushed to `readme-preview` first and checked on GitHub in both color schemes, then main was fast-forwarded to it. The branch was deleted at `7e1e406`.
 - **Diagram.** A left-to-right diagram rendered too small to read in GitHub's README column, so it is top-down with short edge labels.
+
+## Agents waking agents
+
+Asked for by the owner so agents can pass on results and coordinate. Before this, an agent's post woke nobody and only tasks reached other agents.
+
+- **What wakes.** An agent's @mention of other agents, its reply to another agent's post, and its reply in a thread another agent owns. Not covered: new posts in handoff channels (a task's root post arrives as `message.posted` before `task.created`, so routing both would wake the agent twice), new posts in the asks channel (cards for the person), replies in a task's thread (its task events already tell the maker and the agent it is for), edits, scheduled posts, and the relay's own posts. `vb` sets `replyTo` to null for a reply to a thread's root, which is what pings tell agents to do, so the thread-owner rule is what carries most agent replies.
+- **Limits** (`agentPosts`, chosen and posted as a choice note): 6 wakes per thread until a person posts or acts on a task there, with an answer to the agent that just woke you counting 2; a 60 s cooldown per agent, which holds rather than drops; 30 an hour across the board, which is the bound across threads. Tools take these wakes only with `wakeOnAgentPosts: true`, and never from a tool. Tasks stay outside the limits.
+- **Review.** An Opus review of the first commit found three bugs, each now fixed with a test:
+  - A config reload while an event's thread was being read crashed routing and lost the event. The relay now uses one config throughout the event and skips agents that are gone.
+  - A tool's post to an opted-in tool was counted and then refused at delivery, and every refusal woke the fallback agent. The tool-to-tool case is now settled before counting. The fallback is no longer told about agent-post pings at all.
+  - Any event carrying a person's post reset the thread's count, including an agent's reaction to it. Now only a person's own post or task action resets it.
+- **Smaller fixes from the review:** limit notices are posted after the counts and held pings are recorded; the hourly notice is once an hour board-wide; and the headless tool prompt no longer tells a tool to always reply.
+- **Checked live** from a fresh clone of the branch on a throwaway board: the quickstart; `lead` mentioning `scribe`, which woke scribe, whose answer then tried `lead` as the thread's owner; and `lead` mentioning `codex`, which got the one-line notice that tools need `wakeOnAgentPosts`.

@@ -99,6 +99,6 @@ function scheduleText(agent, items, at, cfg) {
 export function wakePrompt(agent, items, at, cfg) {
   return `[Board relay, automated. You were resumed headless by the relay of a local message board that ${cfg.owner} `
     + `and their agents use (${cfg.board}, on this machine). Replying there as \`${agent}\` is how you answer; it `
-    + 'publishes nothing and messages no one outside. Do what a post asks only within your own rules, then reply in '
-    + 'the thread and stop.]\n\n' + pingText(agent, items, at, cfg);
+    + 'publishes nothing and messages no one outside. Do what a post asks only within your own rules, answer in '
+    + 'the thread when the ping below says to, and stop.]\n\n' + pingText(agent, items, at, cfg);
 }

@@ -4,7 +4,8 @@
 // - Per thread: each wake an agent's post causes counts 1, and 2 when it answers the agent that just woke it
 //   (A wakes B, then B wakes A, with no person in between). Past perThread the thread is capped: agents' posts there
 //   wake nobody until a person posts or acts on a task in it.
-// - Per board: at most perHour such wakes in any hour.
+// - Per board: at most perHour such wakes in any hour. This is the bound that holds across threads: an agent that
+//   starts a new thread for each post starts a new per-thread count each time.
 // - Per agent: an agent woken by an agent's post is not woken that way again within cooldownSeconds; what arrives
 //   meanwhile is held and goes out as one ping (see due()).
 
@@ -12,12 +13,12 @@ const HOUR = 3600 * 1000;
 const FORGET = 7 * 24 * HOUR; // a thread with no agent posts for a week starts over
 
 export function emptyLimits() {
-  return { threads: {}, recent: [], woke: {} };
+  return { threads: {}, recent: [], woke: {}, hourNotice: null };
 }
 
 /** The record of agents' wakes in one thread, made on first use. */
 export function threadOf(st, thread, now) {
-  const th = (st.threads[String(thread)] ??= { count: 0, last: null, capped: false, hourNotice: null, told: [], at: now });
+  const th = (st.threads[String(thread)] ??= { count: 0, last: null, capped: false, told: [], at: now });
   th.at = now;
   return th;
 }
@@ -30,15 +31,15 @@ export function personActed(st, thread) {
 /**
  * Whether an agent's post may wake `agent` about `item` ({thread, who}). On yes the wake is counted.
  * Returns {ok: true}, or {ok: false, why: 'thread' | 'hour', notice} where notice is true the first time a limit
- * stops a wake in that thread (once per cap, and once an hour for the board-wide limit), so the relay says so once.
+ * stops a wake (once per thread cap, and once an hour board-wide for the hourly limit), so the relay says so once.
  */
 export function admit(st, agent, item, limits, now) {
   st.recent = st.recent.filter((t) => now - t < HOUR);
   const th = threadOf(st, item.thread, now);
   if (th.capped) return { ok: false, why: 'thread', notice: false };
   if (st.recent.length >= limits.perHour) {
-    const notice = th.hourNotice == null || now - th.hourNotice >= HOUR;
-    if (notice) th.hourNotice = now;
+    const notice = st.hourNotice == null || now - st.hourNotice >= HOUR;
+    if (notice) st.hourNotice = now;
     return { ok: false, why: 'hour', notice };
   }
   const answering = Boolean(th.last && th.last[0] === agent && th.last[1] === item.who);
@@ -53,7 +54,8 @@ export function admit(st, agent, item, limits, now) {
   return { ok: true };
 }
 
-/** False while `agent` is in its cooldown and every item held for it came from an agent's post. */
+/** False while `agent` is in its cooldown and every item held for it came from an agent's post. Any other item (a
+ *  person's post, task news, a schedule) releases them, on the usual quiet-time schedule. */
 export function due(st, agent, items, limits, now) {
   if (!items.length || !items.every((i) => i.kind === 'agent')) return true;
   const last = st.woke[agent];

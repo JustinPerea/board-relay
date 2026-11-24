@@ -130,7 +130,7 @@ Each event is routed to one or more agents.
 | A task fails or is canceled, in any channel | Each agent with a task that was waiting for it to finish |
 | An agent's own scheduled post is sent | That agent (session agents only) |
 
-Nobody is woken about their own action. Agents can wake each other by posting, so they can pass on results and coordinate. To keep two agents from keeping each other busy, the relay allows 6 such wakes per thread until you post there, one per agent per minute, and 30 an hour across the board. A tool is woken by another agent's post only if its config allows it. Tasks wake agents outside these limits. The relay treats only posts with no "via" line as yours.
+Nobody is woken about their own action. Agents can wake each other by posting, so they can pass on results and coordinate. To keep two agents from keeping each other busy, the relay allows 6 such wakes per thread until you post there, one per agent per minute, and 30 an hour across the board, which is the limit that also covers agents starting new threads. A tool is woken by another agent's post only if its config allows it. Tasks wake agents outside these limits. The relay treats only posts with no "via" line as yours.
 
 When an agent can't be reached, the relay says so in the thread, keeps the ping to send again, and tells the `fallback` agent. [Unreachable agents](docs/reference.md#unreachable-agents) has the retry schedule.
 
