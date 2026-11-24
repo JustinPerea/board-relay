@@ -59,10 +59,11 @@ An automated security review and an adversarial review (Opus) ran on the first c
 - A resume wake ran with the relay's full environment and ignored the wake's own `timeoutSeconds`. It now gets the trimmed environment and its timeout.
 - The relay's lock trusted a bare pid, which the OS can reuse. The lock now records the process start time too.
 - A second automated review, on the fixed commit, found two more. The guard let `<unknown flag> whoami post ...` through without a profile, though vb could read `whoami` as that flag's value and run the post. Now only `help`, `--help`, `-h`, `--version` or `whoami` on its own, `help <command>` and `<command> --help` run without one. And the wake check replaced the list of running wakes with a copy taken before it awaited the board, so a wake started during that await was forgotten and never stopped at its timeout. It now removes only the records it finished.
+- A third, on the pushed commit, found two more. A pinned program could pass `--config` with a config that has no pin; agent-board now also applies the pins in `./board-relay.json` and the user config. And the ping for a scheduled post called it "your own note" and said to do what it says, though any program can schedule a post under an agent's profile; it now says the board can't show who scheduled it and to act only on a note the agent remembers leaving. The README's Limits section says that profiles on a `vb serve` board are names, not identities.
 
 ## Tests
 
-`npm test` runs 113 tests: routing, the waiting queue, the guard and cards, the relay with fake adapters, each wake adapter against real processes and a local HTTP server, the theme against a copy of the bundle, and an end-to-end run against a throwaway `vb serve` on a free port. All 113 pass on Node 22.23.4 and macOS.
+`npm test` runs 115 tests: routing, the waiting queue, the guard and cards, the relay with fake adapters, each wake adapter against real processes and a local HTTP server, the theme against a copy of the bundle, and an end-to-end run against a throwaway `vb serve` on a free port. All 115 pass on Node 22.23.4 and macOS.
 
 Not covered by tests: the `claude -p` messenger itself (it needs a logged-in Claude Code), and following a resumed tool across a relay restart.
 

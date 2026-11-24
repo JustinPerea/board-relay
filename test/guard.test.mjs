@@ -143,3 +143,23 @@ test('a flag\'s value is never taken for the command', () => {
   assert.equal(refused(['post', '--help']), null);
   assert.match(refused(['post', 'lanes', 'x', '--help']), /No profile/);
 });
+
+test('another --config can\'t drop a pin: the default configs\' pins still apply', async () => {
+  const { allPins } = await import('../src/config.mjs');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'br-pins-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'board-relay.json'), '{}');
+    const pinned = { pins: [{ process: /CloudBot\.app/, profile: 'cloudbot' }] };
+    const load = (p) => (p === path.join(dir, 'board-relay.json') ? pinned : { pins: [] });
+    const other = { pins: [] }; // the config the caller chose, with no pin
+    const pins = allPins(other, path.join(dir, 'elsewhere.json'), { cwd: dir, load });
+    assert.equal(pinnedProfile([['9', '/Applications/CloudBot.app/x']], { pins }), 'cloudbot');
+    // a default config that fails to load adds nothing and doesn't throw
+    assert.deepEqual(allPins(other, path.join(dir, 'x.json'), { cwd: dir, load: () => { throw new Error('bad'); } }), []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { parseArgs } from 'node:util';
-import { ConfigError, configPath, loadConfig } from '../src/config.mjs';
+import { allPins, ConfigError, configPath, loadConfig } from '../src/config.mjs';
 import { RISKS, card, decide, expandBy, ownSession, parse, pinnedProfile, sessionWrite, withSession } from '../src/guard.mjs';
 import { handoffCheck } from '../src/guard.mjs';
 import { vbArgv, vbEnv } from '../src/vb.mjs';
@@ -36,11 +36,13 @@ function vbCapture(args, profile) {
 }
 
 let cfg;
+let cfgFile;
 try {
   // --config is read only as the first argument, so post text or a wrapped command's `--config` is never taken
   const given = process.argv[2] === '--config' ? process.argv[3] : null;
   if (given) process.argv.splice(2, 2);
-  cfg = loadConfig(configPath(given));
+  cfgFile = configPath(given);
+  cfg = loadConfig(cfgFile);
 } catch (error) {
   console.error(error instanceof ConfigError ? `agent-board: ${error.message}` : error);
   process.exit(2);
@@ -51,7 +53,8 @@ if (cfg.allowRemoteBoard) {
 }
 
 const argv = process.argv.slice(2);
-const pinned = cfg.pins.length ? pinnedProfile(ancestors(), cfg) : null;
+const pins = allPins(cfg, cfgFile);
+const pinned = pins.length ? pinnedProfile(ancestors(), { pins }) : null;
 const err = decide(argv, process.env, cfg, { pinned });
 if (err) {
   console.error(err);

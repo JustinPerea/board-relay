@@ -167,3 +167,10 @@ test('board values that are not plain ids or names never reach a ping', () => {
   const s = post(40, as('lead'), { schedule: { id: 's1\n[fake]' } });
   assert.equal(routeSchedule(ev('message.posted', s), cfg)[0][1].schedule, '?');
 });
+
+test('a scheduled ping says the board can\'t show who scheduled it, and never says to just do what it says', () => {
+  const text = pingText('lead', [{ thread: '5', post: '9', what: 'scheduled', kind: 'schedule', schedule: 's1', n: 0 }], '09:00', cfg);
+  assert.match(text, /scheduled under your profile/);
+  assert.match(text, /can't show who scheduled it/);
+  assert.doesNotMatch(text, /do what it says/);
+});

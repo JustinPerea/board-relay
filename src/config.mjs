@@ -189,3 +189,20 @@ export function profileOf(actor) {
   const name = a.slice(a.lastIndexOf('+') + 1);
   return PROFILE_RE.test(name) ? name.toLowerCase() : null; // board text: never trusted as a name unless it is one
 }
+
+/**
+ * Pins from the chosen config plus every config agent-board would load by default (./board-relay.json and the
+ * user config). --config and BOARD_RELAY_CONFIG pick where the board and agents come from, so a pinned program
+ * could otherwise pass a config without its pin and write as anyone. A default config that fails to load adds none.
+ */
+export function allPins(cfg, chosen, { cwd = process.cwd(), load = loadConfig } = {}) {
+  const pins = [...cfg.pins];
+  const seen = new Set([resolve(chosen)]);
+  for (const p of [configPath(null, {}, cwd), USER_CONFIG]) {
+    const path = resolve(p);
+    if (seen.has(path)) continue;
+    seen.add(path);
+    try { pins.push(...load(path).pins); } catch { /* none there */ }
+  }
+  return pins;
+}

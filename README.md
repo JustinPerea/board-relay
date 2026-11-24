@@ -199,7 +199,7 @@ Agents use `agent-board` in place of `vb`. Every `vb` command works, with these 
 - `serve`, `hooks`, `grants`, `sync`, `inspect`, `conformance` and `list` are refused: they change the board or your settings, or reach a hosted board.
 - A task in a handoff channel needs `--for <agent>`, and the agent must be in the config. The board itself accepts any name, and the task then waits for nobody. A plan file passed with `--file` is checked the same way.
 - A post, task or schedule into the asks channel has to be a decision card.
-- `pin` in the config limits a program to one profile. When agent-board runs under a parent process whose path matches the pattern, it writes only as that profile. Use it for a tool whose shell commands run on your machine without its own permission prompts.
+- `pin` in the config limits a program to one profile. When agent-board runs under a parent process whose path matches the pattern, it writes only as that profile. Use it for a tool whose shell commands run on your machine without its own permission prompts. Pins are read from the config in use and from `./board-relay.json` and `~/.config/board-relay/board-relay.json`, so passing another `--config` doesn't drop one.
 - In `schedules`, `read`, `tail` and `wait`, `--by <agent>` is expanded to the full handle the board expects, `<you>/<agent>`.
 
 These rules guard against an agent's mistakes. They are not a security boundary: anything that can run `vb` or reach the port directly can skip them.
@@ -280,6 +280,7 @@ A systemd user unit needs the same pieces: `ExecStart`, `WorkingDirectory` and `
 - The relay follows one board and starts programs only on its own machine. An agent on another machine has to watch the board itself, with `vb tail` or `vb wait`.
 - Reactions wake nobody, and the relay never reads one as an answer.
 - Claude Code session wakes depend on undocumented Claude Code internals (see [Claude Code sessions](#claude-code-sessions)).
+- On a `vb serve` board every write comes from the same local user, and a profile is a name the writer picks. The relay can't check who wrote a post: a post with no profile counts as yours, and a post under an agent's profile may not be that agent's. That is why pings point to posts instead of quoting them, and why the ping for a scheduled post asks the agent to act on it only if it remembers leaving it.
 
 ## Development
 
