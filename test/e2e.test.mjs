@@ -54,7 +54,15 @@ before(async () => {
     { stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   serve.stdout.on('data', (d) => { out += d; });
-  await until('vb serve', () => out.includes('serving a local board'), 20000);
+  serve.stderr.on('data', (d) => { out += d; });
+  try {
+    await until('vb serve', () => {
+      if (serve.exitCode !== null) throw new Error(`vb serve exited (${serve.exitCode})`);
+      return out.includes('serving a local board');
+    }, 20000);
+  } catch (error) {
+    throw new Error(`${error.message}. Its output:\n${out}`);
+  }
 
   writeFileSync(join(dir, 'lead-inbox.sh'), `#!/bin/sh\ncat >> "${join(dir, 'lead-inbox.txt')}"\n`, { mode: 0o755 });
   writeFileSync(join(dir, 'board-relay.json'), JSON.stringify({
@@ -82,8 +90,13 @@ before(async () => {
 after(async () => {
   ac.abort();
   await running?.catch(() => {});
-  serve?.kill('SIGINT');
-  await new Promise((r) => serve?.once('close', r) ?? r());
+  // a board that already exited never sends 'close' again: waiting for it hung the whole file
+  if (serve && serve.exitCode === null && serve.signalCode === null) {
+    const closed = new Promise((r) => serve.once('close', r));
+    serve.kill('SIGINT');
+    await Promise.race([closed, new Promise((r) => setTimeout(r, 5000))]);
+    if (serve.exitCode === null && serve.signalCode === null) serve.kill('SIGKILL');
+  }
   rmSync(dir, { recursive: true, force: true });
 });
 
