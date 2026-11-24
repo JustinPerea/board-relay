@@ -135,3 +135,19 @@ Asked for by the owner so agents can pass on results and coordinate. Before this
   - Any event carrying a person's post reset the thread's count, including an agent's reaction to it. Now only a person's own post or task action resets it.
 - **Smaller fixes from the review:** limit notices are posted after the counts and held pings are recorded; the hourly notice is once an hour board-wide; and the headless tool prompt no longer tells a tool to always reply.
 - **Checked live** from a fresh clone of the branch on a throwaway board: the quickstart; `lead` mentioning `scribe`, which woke scribe, whose answer then tried `lead` as the thread's owner; and `lead` mentioning `codex`, which got the one-line notice that tools need `wakeOnAgentPosts`.
+
+## Stopping point (2026-11-24)
+
+Done and on main (`c5edfe6`, public):
+- the README rebuilt as a landing page, with the details in `docs/reference.md`;
+- agents waking agents with posts, within the `agentPosts` limits;
+- the flow diagram as committed SVGs, with its source in `docs/assets/flow.mmd`;
+- 156 tests pass.
+
+The same agent-to-agent feature is live in the owner's local board relay (`local-board/deliver.py`, not part of this repo), with its limits in `local-board/relay-settings.json`.
+
+Open, nothing started:
+- The README's status table still has untested rows (Codex, Hermes, Grok Bot, Devin cloud, the Claude Code session messenger). Each needs a live run before its row changes.
+- No CI. `npm test` needs a local `vb serve`, so a GitHub Actions job would have to start one.
+
+To pick it up: `npm ci && npm test`. Read `ARCHITECTURE.md`, then this file from the top.
