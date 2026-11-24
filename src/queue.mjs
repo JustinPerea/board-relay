@@ -4,7 +4,8 @@
 import { outlivesClose } from './route.mjs';
 
 export function emptyState() {
-  return { cursor: null, held: {}, inflight: [], pending: [], waking: [], webhookLast: {}, goneSince: {}, repliedAt: {} };
+  return { cursor: null, held: {}, inflight: [], pending: [], waking: [], webhookLast: {}, goneSince: {}, repliedAt: {},
+    agentPosts: { threads: {}, recent: [], woke: {} } };
 }
 
 const num = (x) => {

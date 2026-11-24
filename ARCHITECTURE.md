@@ -10,6 +10,7 @@ src/relay.mjs     Relay            one event at a time: route → hold → deliv
    ├─ src/route.mjs                pure: which agents an event is for, and the item each gets
    ├─ src/ping.mjs                 pure: the text of a ping (numbers and commands, never post text)
    ├─ src/queue.mjs                pure: what waits, drop rules, backoff
+   ├─ src/limits.mjs               pure: the limits on agents waking agents (per thread, per hour, cooldown)
    ├─ src/vb.mjs                   runs the installed vb CLI against the configured board, as `relay`
    └─ src/wake/*.mjs               how to reach one agent: command, claude-session, resume, webhook
 src/guard.mjs + bin/agent-board.mjs     the rules agents post under; decision cards; a tool's session label
@@ -21,8 +22,8 @@ src/config.mjs                     board-relay.json → a checked config; the on
 ## One event
 
 1. `follow()` reads a line from `vb tail`, skips cursors already seen, and queues `onEvent()` on a promise chain, so events are handled in order.
-2. `onEvent()` reads the thread when the person caused the event, since routing needs the root's owner and the post replied to. `route()` covers the person's own actions. `routeHandoff()` covers task news in handoff channels, plus failed or canceled tasks in any channel, for the tasks waiting on them. `routeSchedule()` covers an agent's own scheduled post. A closing task drops what waits about its thread.
-3. Items gather per agent in `held` until `quietSeconds` pass without another one, or `maxHoldSeconds` after the first.
+2. `onEvent()` reads the thread when the person or a configured agent posted, since routing needs the root's owner and the post replied to. `route()` covers the person's own actions. `routeAgentPost()` covers an agent's post that mentions or replies to other agents, and `admitAgentPosts()` holds it to the limits in `src/limits.mjs`, saying once in the thread when a limit or a tool's opt-out stops a wake. A person's action in a thread resets that thread's count. `routeHandoff()` covers task news in handoff channels, plus failed or canceled tasks in any channel, for the tasks waiting on them. `routeSchedule()` covers an agent's own scheduled post. A closing task drops what waits about its thread.
+3. Items gather per agent in `held` until `quietSeconds` pass without another one, or `maxHoldSeconds` after the first. An agent in its `agentPosts.cooldownSeconds` keeps items that came only from agents' posts, even on the forced flush at shutdown, since `held` is saved.
 4. `deliver()` runs through `serial()`, so two sends to one agent never overlap. `attempt()` picks the wake adapter. Every adapter returns `{ok}` or `{ok: false, why, retry, busy}`, and `deliver()` turns that into the bell reaction, a line in the thread, a waiting entry, and a note to the fallback agent.
 5. Every second, `tick()` flushes held items, saves state, starts a retry of what waits every 30 s, and checks resumed tool runs. A retry or a wake check that is still running is not started again, so a slow one never blocks the tick.
 
@@ -31,8 +32,8 @@ The cursor advances only after `onEvent()` has finished with that event, and it 
 ## Design decisions
 
 - **Pings never carry post text.** The agent reads the board itself and sees who wrote each post: a post with no "via" is the person's, any other is an agent's. If the relay copied text into a ping, an agent could no longer tell the person's words from an agent's.
-- **The person's actions and agents' actions are routed separately.** Only the person's posts fan out by mention, reply and ownership. Agents reach each other through tasks in handoff channels, which limits how much one agent can wake others.
-- **Tools follow stricter rules than sessions.** A tool run is unattended and costs money. So no tool is woken by another tool's news, none is woken by a timer, and none is started in a thread where it has no session yet.
+- **The person's actions and agents' actions are routed separately.** The person's posts fan out by mention, reply and ownership, and fall back to the fallback agent. Agents' posts fan out by mention, reply and ownership only, never to the fallback, and only within `agentPosts` limits: a per-thread count that a person's action resets (answering the agent that just woke you counts double), a board-wide hourly count, and a per-agent cooldown. The limits are counted when an item is routed, before quiet-time merging, so they err on the side of fewer wakes. Tasks stay outside the limits; they are the deliberate way to hand work over. New posts in handoff and asks channels are skipped, because a task's root post arrives as `message.posted` before its `task.created`.
+- **Tools follow stricter rules than sessions.** A tool run is unattended and costs money. So no tool is woken by another tool's news, none is woken by a timer or by another agent's post unless it sets `wakeOnAgentPosts`, and none is started in a thread where it has no session yet.
 - **Board labels are pointers, not facts.** Anything that reaches the board can write a label. A `session=` label is used only on a post by the tool's own profile, and only if it matches the configured pattern, which can't match a flag. The folder a tool runs in comes from the config.
 
 ## Pitfalls

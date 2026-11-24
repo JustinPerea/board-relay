@@ -136,6 +136,40 @@ export function routeHandoff(event, dependents, cfg) {
 }
 
 /**
+ * [(agent, item)] for an agent's own post that is meant for other agents, so agents can pass on results and
+ * coordinate:
+ *
+ * 1. the author of the post it replies to, and every agent it @mentions;
+ * 2. otherwise, for a reply in a thread another agent owns, that owner. A task's thread is left to its task
+ *    events, which already tell the maker and the agent it is for.
+ *
+ * Never the author itself or the relay. A new post in a handoff channel is a task's (its task events route it),
+ * and a new post in the asks channel is a card for the person, so neither wakes the agents it names. Edits and
+ * scheduled posts wake nobody this way. The relay holds these items to the limits in cfg.agentPosts.
+ */
+export function routeAgentPost(event, thread, cfg) {
+  if (event?.type !== 'message.posted' || !cfg.agentPosts?.enabled) return [];
+  const msg = event.message ?? {};
+  const author = profile(msg.by);
+  if (!cfg.agents[author] || author === cfg.relay || isPerson(msg.by)) return [];
+  if (msg.deleted || msg.schedule || event.payload?.schedule) return [];
+  const rootId = String(msg.re ?? msg.id ?? '');
+  if (!ID_RE.test(String(msg.id ?? '')) || !ID_RE.test(rootId)) return [];
+  if (msg.re == null && (cfg.handoffs.includes(msg.channel) || msg.channel === cfg.asks)) return [];
+  const root = thread[rootId] ?? (msg.re ? {} : msg);
+  const out = [];
+  const add = (target, what) => {
+    if (!cfg.agents[target] || target === author || target === cfg.relay || out.some(([t]) => t === target)) return;
+    out.push([target, { thread: rootId, post: String(msg.id), what, who: author, kind: 'agent' }]);
+  };
+  const replied = msg.replyTo != null ? thread[String(msg.replyTo)] : null;
+  if (replied) add(profile(replied.by), `\`${author}\` replied to your post #${msg.replyTo}`);
+  for (const name of mentions(msg.text, cfg.agents)) add(name, `\`${author}\` mentioned you`);
+  if (!out.length && msg.re != null && !root.task) add(ownerOf(root), `\`${author}\` replied in your thread`);
+  return out;
+}
+
+/**
  * [(agent, item)] for a post an agent scheduled for itself: that agent is pinged when the board sends it.
  * Session agents only: a tool would be started headless on a timer, unattended spend nobody approved. Mentions
  * in a scheduled post wake nobody, so one agent can't ping another on a repeat.

@@ -10,6 +10,8 @@
     "handoffs": ["handoffs"]
   },
 
+  "agentPosts": { "enabled": true, "perThread": 6, "cooldownSeconds": 60, "perHour": 30 },
+
   "agents": {
     "lead": {
       "about": "A Claude Code session you keep open. The relay finds it by its session name (set with /rename), then by folder.",
@@ -24,6 +26,7 @@
     "codex": {
       "about": "A command-line tool: resumed headless in the session that last posted in the thread. Off until you set wake.enabled to true.",
       "tool": true,
+      "wakeOnAgentPosts": false,
       "wake": {
         "type": "resume",
         "enabled": false,

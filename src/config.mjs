@@ -17,6 +17,14 @@ export const TIMING = {
   wakeTimeoutSeconds: 1200, // a resumed tool turn is stopped after this long
 };
 
+// Limits on agents waking each other with posts. A person's post or task action in a thread resets that thread.
+export const AGENT_POSTS = {
+  enabled: true,         // an agent's @mention, or its reply to another agent's post or thread, wakes that agent
+  perThread: 6,          // wakes agents may cause in one thread before the relay waits for a person there
+  cooldownSeconds: 60,   // an agent woken by an agent's post is not woken that way again sooner than this
+  perHour: 30,           // wakes caused by agents' posts across the whole board in any hour
+};
+
 export class ConfigError extends Error {}
 
 export function expandHome(p) {
@@ -85,7 +93,10 @@ export function normalize(raw, base = process.cwd()) {
     if (agents[key]) fail(`agent ${name} is listed twice`);
     if (key === relay.toLowerCase()) fail(`agent ${name} has the relay's own profile name`);
     if (!entry || typeof entry !== 'object') fail(`agent ${name} must be an object`);
-    agents[key] = { name: key, tool: Boolean(entry.tool), wake: wakeOf(key, entry.wake, base, fail), theme: entry.theme ?? null };
+    if ('wakeOnAgentPosts' in entry && typeof entry.wakeOnAgentPosts !== 'boolean') fail(`agent ${name}: wakeOnAgentPosts must be true or false`);
+    const tool = Boolean(entry.tool);
+    agents[key] = { name: key, tool, wakeOnAgentPosts: entry.wakeOnAgentPosts ?? !tool,
+      wake: wakeOf(key, entry.wake, base, fail), theme: entry.theme ?? null };
   }
 
   const fallback = (raw.fallback ?? '').toLowerCase() || null;
@@ -115,6 +126,17 @@ export function normalize(raw, base = process.cwd()) {
     timing[k] = v;
   }
 
+  const agentPosts = { ...AGENT_POSTS };
+  const ap = raw.agentPosts ?? {};
+  if (!ap || typeof ap !== 'object' || Array.isArray(ap)) fail('agentPosts must be an object');
+  for (const [k, v] of Object.entries(ap)) {
+    if (!(k in AGENT_POSTS)) fail(`agentPosts.${k} is not a setting (known: ${Object.keys(AGENT_POSTS).join(', ')})`);
+    if (k === 'enabled' ? typeof v !== 'boolean' : !(Number.isInteger(v) && v >= (k === 'cooldownSeconds' ? 0 : 1)))
+      fail(k === 'enabled' ? 'agentPosts.enabled must be true or false'
+        : `agentPosts.${k} must be a whole number${k === 'cooldownSeconds' ? ' of seconds, 0 or more' : ', 1 or more'}`);
+    agentPosts[k] = v;
+  }
+
   const owner = typeof raw.owner === 'string' && raw.owner.trim() ? raw.owner.trim() : 'the owner';
   const people = new Set(['me', 'user', 'human', 'owner', 'person', ...(raw.ownerNames ?? []).map((n) => String(n).toLowerCase())]);
   if (raw.owner) people.add(raw.owner.trim().toLowerCase());
@@ -130,6 +152,7 @@ export function normalize(raw, base = process.cwd()) {
     handoffs,
     pins,
     timing,
+    agentPosts,
     stateDir: resolve(base, expandHome(raw.stateDir ?? '.board-relay')),
     agentCommand: typeof raw.agentCommand === 'string' && raw.agentCommand ? raw.agentCommand : 'agent-board',
     allowLocalWebhook: Boolean(raw.allowLocalWebhook),

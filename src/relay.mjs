@@ -2,13 +2,15 @@
 //
 // An idle agent takes no turn, so it never sees a reply on its own. For each thing the person does on the board
 // (a post, a reply, an edit, a task they unblock, complete or cancel), and for task news between agents in the
-// handoff channels, the relay sends one ping to the agent it is meant for. The ping holds thread numbers and the
-// commands to read them, never anyone's words. A ping that can't be delivered waits until it can.
+// handoff channels, the relay sends one ping to the agent it is meant for. An agent's post wakes the agents it
+// @mentions or replies to, within the limits in src/limits.mjs. The ping holds thread numbers and the commands to
+// read them, never anyone's words. A ping that can't be delivered waits until it can.
 import { spawn } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { configStamp, loadConfig, profileOf, isPerson } from './config.mjs';
-import { route, routeHandoff, routeSchedule, CLOSING, causedByTool } from './route.mjs';
+import { route, routeAgentPost, routeHandoff, routeSchedule, CLOSING, causedByTool } from './route.mjs';
+import * as limits from './limits.mjs';
 import { pingText, wakePrompt, when } from './ping.mjs';
 import * as queue from './queue.mjs';
 import { relayBoard, vbEnv, vbScript } from './vb.mjs';
@@ -96,9 +98,13 @@ export class Relay {
     const cfg = this.cfg;
     const msg = ev.message ?? {};
     const byPerson = isPerson(msg.by) || isPerson(ev.payload?.by);
-    const thread = byPerson && msg.id ? (await this.board.readThread(msg.re ?? msg.id)).messages : {};
+    const author = String(msg.by?.profile ?? '').toLowerCase();
+    const byAgent = ev.type === 'message.posted' && cfg.agentPosts.enabled && Boolean(cfg.agents[author]) && !byPerson;
+    const thread = (byPerson || byAgent) && msg.id ? (await this.board.readThread(msg.re ?? msg.id)).messages : {};
+    if (byPerson && msg.id) limits.personActed(this.state.agentPosts, msg.re ?? msg.id);
     const [targets, item] = route(ev, thread, cfg);
     const pairs = (targets ?? []).map((a) => [a, item]);
+    if (byAgent) pairs.push(...await this.admitAgentPosts(routeAgentPost(ev, thread, cfg)));
     const gone = ev.type === 'task.failed' || ev.type === 'task.canceled';
     if (gone || (!byPerson && cfg.handoffs.includes(msg.channel)))
       pairs.push(...routeHandoff(ev, gone ? await this.board.waitingOn(msg.id, profileOf) : [], cfg));
@@ -117,14 +123,47 @@ export class Relay {
     return pairs;
   }
 
-  /** Send what has been quiet long enough, or held too long. */
+  /** The agent-post pairs the limits let through. A limit or a tool that hasn't opted in is said once in the thread,
+   *  so the agent that posted knows its post woke nobody. */
+  async admitAgentPosts(pairs) {
+    const cfg = this.cfg;
+    const st = this.state.agentPosts;
+    const now = this.clock();
+    const out = [];
+    for (const [agent, item] of pairs) {
+      const entry = cfg.agents[agent];
+      if (!entry.wakeOnAgentPosts) {
+        const told = limits.threadOf(st, item.thread, now).told;
+        if (told.includes(agent)) continue;
+        told.push(agent);
+        this.note(`not woken agent=${agent} thread=${item.thread}: it takes no wakes from agents' posts`);
+        await this.board.reply(item.thread, entry.tool
+          ? `Relay: \`${agent}\` is a tool, and the relay wakes a tool for an agent's post only when its config sets \`wakeOnAgentPosts\` to true. To hand it work, make a task for it in a handoff channel.`
+          : `Relay: \`${agent}\` is set not to be woken by agents' posts (\`wakeOnAgentPosts\` is false). To hand it work, make a task for it in a handoff channel.`);
+        continue;
+      }
+      const r = limits.admit(st, agent, item, cfg.agentPosts, now);
+      if (r.ok) { out.push([agent, item]); continue; }
+      this.note(`not woken agent=${agent} thread=${item.thread}: the ${r.why === 'hour' ? 'hourly' : 'thread'} limit on agents waking agents`);
+      if (!r.notice) continue;
+      await this.board.reply(item.thread, r.why === 'hour'
+        ? `Relay: agents' posts have woken agents ${cfg.agentPosts.perHour} times in the last hour, the most the relay allows (\`agentPosts.perHour\`), so \`${agent}\` was not woken. Agents' posts wake nobody until the hour's count drops; posts by ${cfg.owner} and tasks still do.`
+        : `Relay: agents have woken each other in this thread as often as the relay allows without ${cfg.owner} (\`agentPosts.perThread\` is ${cfg.agentPosts.perThread}), so \`${agent}\` was not woken. Agents' posts here wake nobody until ${cfg.owner} posts in this thread or acts on its task. Tasks still wake agents.`);
+    }
+    return out;
+  }
+
+  /** Send what has been quiet long enough, or held too long. An agent in its cooldown keeps pings that came only
+   *  from agents' posts, even when forced (they are in the saved state); a ping from a person goes out with them. */
   flushHeld(force = false) {
     const now = this.clock();
     const t = this.cfg.timing;
     const sends = [];
     for (const [agent, h] of Object.entries(this.held)) {
+      if (!limits.due(this.state.agentPosts, agent, h.items, this.cfg.agentPosts, now)) continue;
       if (force || now - h.last >= t.quietSeconds * 1000 || now - h.first >= t.maxHoldSeconds * 1000) {
         delete this.held[agent];
+        limits.sent(this.state.agentPosts, agent, h.items, now);
         const flight = { id: `${now}-${Math.random().toString(36).slice(2, 8)}`, agent, items: h.items };
         this.state.inflight.push(flight);
         sends.push(this.serial(agent, () => this.deliver(agent, h.items)).finally(() => {
@@ -187,7 +226,7 @@ export class Relay {
 
     // A decision card the person replied to stops reading as waiting on them, whether or not the agent could be
     // woken. The agent clears it by asking again with `ask --replace`.
-    for (const t of new Set(items.filter((i) => i.post && i.what === 'reply').map((i) => String(i.thread)))) {
+    for (const t of new Set(items.filter((i) => i.post && i.what === 'reply' && !i.who).map((i) => String(i.thread)))) {
       await this.board.label(t, 'replied=yes', '--if', 'kind=decision');
       if (firstTry) this.state.repliedAt[t] = this.clock();
     }
@@ -279,7 +318,8 @@ export class Relay {
   /** Tell the fallback agent a ping could not be delivered. Off the main path: it never waits. */
   tellFallback(fb, agent, items, why, threads) {
     const cfg = this.cfg;
-    const whose = items.some((i) => !i.who) ? `${cfg.owner} wrote to` : 'There is task news for';
+    const whose = items.some((i) => !i.who) ? `${cfg.owner} wrote to`
+      : items.some((i) => i.kind === 'agent') ? 'Another agent wrote to' : 'There is task news for';
     const text = `[Board relay, automated. Not ${cfg.owner}'s word.]\n${whose} \`${agent}\` on the board and the ping was not `
       + `delivered: ${why}.\nThreads: ${threads.map((t) => '#' + t).join(', ')}\n`
       + `Read: ${cfg.agentCommand} --as ${fb} read ${threads[0]}`;
@@ -297,6 +337,7 @@ export class Relay {
     const cfg = this.cfg;
     const t = cfg.timing;
     const now = this.clock();
+    limits.prune(this.state.agentPosts, cfg.agentPosts, now);
     for (const a of queue.pruneGone(this.state, cfg.agents, now, t.goneGraceSeconds)) this.note(`dropped what waited for ${a}: not in the config any more`);
     const done = new Set();
     for (const p of [...this.state.pending]) {
