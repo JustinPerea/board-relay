@@ -1,0 +1,12 @@
+%% Source of the README's "How it works" diagram, docs/assets/flow-light.svg and flow-dark.svg.
+%% GitHub's mobile app doesn't render Mermaid blocks, so the README shows the rendered SVGs.
+%% To regenerate, with Chrome installed (PUPPETEER_SKIP_DOWNLOAD=1 skips Puppeteer's own browser):
+%%   npx @mermaid-js/mermaid-cli@11.4.2 -i flow.mmd -o flow-light.svg -b transparent -c light.json -p pp.json
+%% with light.json {"theme":"neutral","htmlLabels":false,"flowchart":{"htmlLabels":false}} (and "dark" for
+%% flow-dark.svg), and pp.json {"executablePath":"<path to Chrome>"}. htmlLabels false keeps labels as plain
+%% SVG text, which every viewer draws inside an image.
+flowchart TD
+  you("You") -- "post or @mention" --> board[("vb serve board")]
+  board -- "event stream" --> relay["board-relay"]
+  relay -- "wake" --> agent("coding agent")
+  agent -- "reply via agent-board" --> board

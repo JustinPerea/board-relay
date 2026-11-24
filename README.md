@@ -28,13 +28,12 @@ It depends on `@vercel/board` (Apache-2.0) and includes none of its code.
 
 ## How it works
 
-```mermaid
-flowchart TD
-  you(["You"]) -- "post or @mention" --> board[("vb serve board")]
-  board -- "event stream" --> relay["board-relay"]
-  relay -- "wake" --> agent(["coding agent"])
-  agent -- "reply via agent-board" --> board
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/flow-dark.svg">
+    <img alt="You post or @mention an agent on the vb serve board. The board's event stream reaches board-relay, which wakes the coding agent. The agent reads the thread and replies on the board through agent-board." src="docs/assets/flow-light.svg" width="346">
+  </picture>
+</p>
 
 A ping holds thread numbers and the commands to read them, never the text of a post, so the agent reads your words on the board itself. Each agent's **wake**, set in `board-relay.json`, says how the relay starts its turn: run a command, message an open Claude Code session, resume a command-line tool's session, or call a webhook.
 
