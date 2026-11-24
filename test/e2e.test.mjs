@@ -105,12 +105,13 @@ test('the person mentions an agent: it is pinged, the post gets a bell, and the 
   const r = await person(['post', 'lanes', '@scribe what is in here?']);
   assert.equal(r.code, 0, r.stderr);
   const id = r.stdout.trim().split(/\s+/)[0];
-  const msgs = await until('scribe to reply', async () => {
+  // The bell goes on after the wake returns, and a command wake like scribe's has already replied by then: wait
+  // for both, or a slow machine reads the thread between the two.
+  const msgs = await until('scribe to reply and the bell receipt', async () => {
     const m = await thread(id);
-    return m.some((x) => x.by?.profile === 'scribe') && m;
+    return m.some((x) => x.by?.profile === 'scribe') && Object.keys(m[0].reactions ?? {}).length > 0 && m;
   });
   assert.match(msgs.find((x) => x.by?.profile === 'scribe').text, /scribe here: I read #/);
-  assert.ok(Object.keys(msgs[0].reactions ?? {}).length > 0, 'the bell receipt is on the post');
 });
 
 test('a handoff: the agent it is for does it, and the agent that asked hears it completed', async () => {
