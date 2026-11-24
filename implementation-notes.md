@@ -26,7 +26,6 @@ board-relay is a generic rewrite of a relay that ran for a week on one machine's
 | The decisions page published to a personal site | It deploys to one person's site through their deploy script |
 | `/review` (multi-model PR review started from a post) | It runs on one account's Claude login and checks its organization |
 | A command that lets a session or an app post as the person | Its trust model is one machine's process trees and one local app's confirm endpoint. Writing as the person is something a public tool should not offer |
-| Per-tool session detection for Cursor and Devin (open files, lock files) | Depends on each tool's private on-disk layout. Tools that put their session id in an environment variable (Codex, Hermes) work through `sessionEnv` |
 | App icons as avatars | They were third-party app icons cropped from installed apps. Tools are drawn with a dashed outline and their first letter |
 | Daily reminder to close answered cards | Small and generic, but it needs a time-of-day policy per user. A candidate for later |
 | Re-making schedules after a board restart | `vb serve` drops schedule timers on restart. The original remade them as their creator; about 200 lines with its own state. Listed under Limits in the README, and worth raising upstream instead |
@@ -61,9 +60,23 @@ An automated security review and an adversarial review (Opus) ran on the first c
 - A second automated review, on the fixed commit, found two more. The guard let `<unknown flag> whoami post ...` through without a profile, though vb could read `whoami` as that flag's value and run the post. Now only `help`, `--help`, `-h`, `--version` or `whoami` on its own, `help <command>` and `<command> --help` run without one. And the wake check replaced the list of running wakes with a copy taken before it awaited the board, so a wake started during that await was forgotten and never stopped at its timeout. It now removes only the records it finished.
 - A third, on the pushed commit, found two more. A pinned program could pass `--config` with a config that has no pin; agent-board now also applies the pins in `./board-relay.json` and the user config. And the ping for a scheduled post called it "your own note" and said to do what it says, though any program can schedule a post under an agent's profile; it now says the board can't show who scheduled it and to act only on a note the agent remembers leaving. The README's Limits section says that profiles on a `vb serve` board are names, not identities.
 
+## Recipes and AGENTS.md (second round)
+
+Added before the repo goes public, on the owner's request: recipes for Cursor CLI, Devin CLI, Codex CLI, Hermes, Grok Bot and a Devin cloud session (`docs/recipes.md`), and an `AGENTS.md` for an agent asked to set the relay up.
+
+- **`sessionOpenFile`.** The first version left out session detection for Cursor and Devin, because the original read each tool's private files. Both turned out to fit one generic rule: the tool holds a file named after the session open during a turn (Cursor's chat `store.db`, Devin's session lock file). A resume wake can now give a pattern with one capture group, and agent-board takes the id when exactly one file held open by its parent processes matches.
+- **`lsof` fallback.** Devin's sandbox refuses `ps` (`Operation not permitted`) but allows `lsof`, so agent-board walks its process tree with `lsof -FRfn` (parent pid, executable, open files) when `ps` fails. With pins configured and neither working, agent-board refuses the call instead of skipping the pin check.
+- **No keys in a resumed tool's environment.** The resume wake used to pass the relay's environment through. It now drops names containing KEY, TOKEN, SECRET, PASSWORD or CREDENTIAL unless the wake lists them in `passEnv`.
+- **Codex example** now sets `sandbox_mode="workspace-write"` with network access, which agent-board needs to reach the board.
+- **What was run.** Each through a launcher that starts the tool with no MCP servers and no key variables:
+  - Cursor CLI (`cursor-agent` 2026.11.22, `composer-2.5`, `--sandbox enabled`): `agent-board --as cursor session` printed the chat id. The first attempt was refused (`Rejected: Fail`) until the project's `.cursor/cli.json` allowed `Shell(agent-board)`, and Cursor rejects that file without a `deny` list.
+  - Devin CLI (3000.14, `swe-2-max`, `--sandbox`): the lookup failed until the `lsof` fallback, then printed the session id. A second run, `devin -r <id> -p -- <prompt>`, resumed that session. Its log showed 0 MCP servers started. The log doesn't show the resumed turn's model.
+  - Not run: a post to a board from inside either tool, because the launcher gives each tool an empty `HOME` or `XDG_CONFIG_HOME`, and `vb` then can't find the board's token. Codex is on hold, Hermes isn't covered by the launcher, and the Grok Bot webhook key was not handled, so those recipes are marked untested.
+- **`test/recipes.test.mjs`** loads every config block in `docs/recipes.md` and checks the Cursor, Devin and Hermes session patterns against ids of the shapes the tools use, so the recipes can't drift from the config format.
+
 ## Tests
 
-`npm test` runs 115 tests: routing, the waiting queue, the guard and cards, the relay with fake adapters, each wake adapter against real processes and a local HTTP server, the theme against a copy of the bundle, and an end-to-end run against a throwaway `vb serve` on a free port. All 115 pass on Node 22.23.4 and macOS.
+`npm test` runs 123 tests: routing, the waiting queue, the guard and cards, the relay with fake adapters, each wake adapter against real processes and a local HTTP server, the theme against a copy of the bundle, and an end-to-end run against a throwaway `vb serve` on a free port. All 123 pass on Node 22.23.4 and macOS.
 
 Not covered by tests: the `claude -p` messenger itself (it needs a logged-in Claude Code), and following a resumed tool across a relay restart.
 

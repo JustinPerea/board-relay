@@ -164,6 +164,19 @@ function wakeOf(name, wake, base, fail) {
       if (['-x', '--x', '-', '--'].some((f) => out.sessionPattern.test(f))) fail(`agent ${name}: sessionPattern must not match a flag`);
       { const re = out.sessionPattern; out.sessionPattern = { test: (v) => typeof v === 'string' && !v.startsWith('-') && re.test(v), source: re.source }; }
       if (!wake.cwd) fail(`agent ${name}: a resume wake needs cwd, the folder the tool runs in`);
+      if (wake.sessionEnv != null && wake.sessionOpenFile != null)
+        fail(`agent ${name}: a resume wake takes sessionEnv or sessionOpenFile, not both`);
+      if (wake.sessionEnv != null && (typeof wake.sessionEnv !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(wake.sessionEnv)))
+        fail(`agent ${name}: sessionEnv must be an environment variable name`);
+      if (wake.sessionOpenFile != null) {
+        let re;
+        try { re = new RegExp(wake.sessionOpenFile); } catch { fail(`agent ${name}: sessionOpenFile is not a valid pattern`); }
+        if (new RegExp(`${wake.sessionOpenFile}|`).exec('').length !== 2)
+          fail(`agent ${name}: sessionOpenFile needs exactly one capture group, around the session id`);
+        out.sessionOpenFile = re;
+      }
+      if (wake.passEnv != null && !(Array.isArray(wake.passEnv) && wake.passEnv.every((k) => typeof k === 'string')))
+        fail(`agent ${name}: passEnv must be a list of variable names`);
       break;
     case 'webhook': {
       let u;

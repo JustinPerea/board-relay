@@ -27,7 +27,7 @@
       "wake": {
         "type": "resume",
         "enabled": false,
-        "argv": ["codex", "exec", "resume", "{session}", "--skip-git-repo-check", "-"],
+        "argv": ["codex", "exec", "resume", "{session}", "--skip-git-repo-check", "-c", "sandbox_mode=\"workspace-write\"", "-c", "sandbox_workspace_write.network_access=true", "-"],
         "stdin": true,
         "sessionEnv": "CODEX_THREAD_ID",
         "sessionPattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",

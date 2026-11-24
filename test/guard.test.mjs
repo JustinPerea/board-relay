@@ -163,3 +163,57 @@ test('another --config can\'t drop a pin: the default configs\' pins still apply
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const CHAT = '/\\.cursor/chats/[0-9a-f]{32}/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/store\\.db$';
+const openCfg = (extra = {}) => normalize({ agents: { cursor: { tool: true, wake: { type: 'resume',
+  argv: ['cursor-agent', '-p', '--resume', '{session}', '{prompt}'], sessionOpenFile: CHAT, sessionPattern: UUID, cwd: '/tmp', ...extra } } } }, '/tmp');
+
+test('sessionOpenFile: the id comes from the one session file the process tree holds open', () => {
+  const c = openCfg();
+  const sid = '0199a1b2-c3d4-4e5f-8a9b-0c1d2e3f4a5b';
+  const other = '0199a1b2-c3d4-4e5f-8a9b-0c1d2e3f4a5c';
+  const chat = (id) => `/h/.cursor/chats/${'4'.repeat(32)}/${id}/store.db`;
+  const chain = [['30', 'node'], ['20', 'zsh'], ['10', 'cursor-agent']];
+  const files = (open) => (pid) => (pid === '10' ? open : ['/dev/null']);
+  assert.equal(ownSession('cursor', c, {}, { chain, files: files([chat(sid), chat(sid) + '-wal'.replace('-wal', '')]) }), sid);
+  assert.equal(ownSession('cursor', c, {}, { chain, files: files([chat(sid), chat(other)]) }), null, 'two chats open: no label');
+  assert.equal(ownSession('cursor', c, {}, { chain, files: files(['/x/store.db']) }), null);
+  assert.equal(ownSession('cursor', c, {}, { chain, files: () => { throw new Error('lsof gone'); } }), null);
+  assert.equal(ownSession('cursor', c, {}), null, 'no lookup given: no label');
+});
+
+test('sessionOpenFile is checked when the config loads', () => {
+  assert.throws(() => openCfg({ sessionEnv: 'X' }), /sessionEnv or sessionOpenFile, not both/);
+  assert.throws(() => openCfg({ sessionOpenFile: '/chats/[0-9a-f]+/store\\.db$' }), /exactly one capture group/);
+  assert.throws(() => openCfg({ sessionOpenFile: '/(a)/(b)$' }), /exactly one capture group/);
+  assert.throws(() => openCfg({ sessionOpenFile: '/(unclosed$' }), /not a valid pattern/);
+  assert.throws(() => openCfg({ passEnv: 'OPENAI_API_KEY' }), /passEnv must be a list/);
+});
+
+test('agent-board finds the session from a file a real parent process holds open', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  if (spawnSync('lsof', ['-v']).error) return; // no lsof on this machine
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'br-open-'));
+  try {
+    const sid = '0199a1b2-c3d4-4e5f-8a9b-0c1d2e3f4a5b';
+    const chatDir = path.join(dir, '.cursor', 'chats', '4'.repeat(32), sid);
+    fs.mkdirSync(chatDir, { recursive: true });
+    fs.writeFileSync(path.join(chatDir, 'store.db'), '');
+    fs.writeFileSync(path.join(dir, 'board-relay.json'), JSON.stringify({ agents: { cursor: { tool: true, wake: { type: 'resume',
+      argv: ['cursor-agent', '-p', '--resume', '{session}', '{prompt}'], sessionOpenFile: CHAT, sessionPattern: UUID, cwd: dir } } } }));
+    const bin = path.resolve('bin/agent-board.mjs');
+    // the parent holds the chat's store.db open, as cursor-agent does during a turn, and runs agent-board under it
+    const parent = `const fs=require('fs');const fd=fs.openSync(${JSON.stringify(path.join(chatDir, 'store.db'))},'r');`
+      + `const r=require('child_process').spawnSync(process.execPath,[${JSON.stringify(bin)},'--as','cursor','session'],{encoding:'utf8'});`
+      + `process.stdout.write(r.stdout+r.stderr);fs.closeSync(fd);`;
+    const r = spawnSync(process.execPath, ['-e', parent], { cwd: dir, encoding: 'utf8', timeout: 30000 });
+    assert.match(r.stdout, new RegExp(`session=${sid}`));
+    const none = spawnSync(process.execPath, [bin, '--as', 'cursor', 'session'], { cwd: dir, encoding: 'utf8', timeout: 30000 });
+    assert.match(none.stdout, /no session label/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

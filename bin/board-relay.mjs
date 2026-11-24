@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // board-relay: wake the right agent when a Vercel Board thread or handoff needs it.
 import { copyFileSync, existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ConfigError, configPath, loadConfig } from '../src/config.mjs';
 import { Relay } from '../src/relay.mjs';
@@ -86,6 +86,7 @@ async function main() {
               : w.type === 'resume' ? `resumes its session: ${w.argv.join(' ')}`
                 : `calls its webhook (${new URL(w.url).host})`;
         console.log(`  ${a.name.padEnd(18)} ${a.tool ? 'tool   ' : 'session'} ${how}`);
+        for (const w of setupWarnings(a, file)) console.log(`  ${''.padEnd(18)} warning: ${w}`);
       }
       return 0;
     }
@@ -153,3 +154,21 @@ async function main() {
 }
 
 process.exitCode = await main();
+
+/** What `check` can see is missing for an agent's wake: its folder, its program, its headers file. */
+function setupWarnings(agent, file) {
+  const w = agent.wake;
+  if (!w) return [];
+  const out = [];
+  if (w.cwd && !existsSync(w.cwd)) out.push(`the folder ${w.cwd} does not exist`);
+  if ((w.type === 'resume' || w.type === 'command') && !onPath(w.argv[0], w.cwd ?? dirname(file)))
+    out.push(`\`${w.argv[0]}\` is not on PATH`);
+  if (w.type === 'webhook' && w.headersFile && !existsSync(w.headersFile)) out.push(`the headers file ${w.headersFile} does not exist yet`);
+  return out;
+}
+
+function onPath(cmd, cwd) {
+  if (cmd.includes('/')) return existsSync(isAbsolute(cmd) ? cmd : join(cwd, cmd));
+  return (process.env.PATH ?? '').split(delimiter).some((d) => d && existsSync(join(d, cmd)));
+}
+

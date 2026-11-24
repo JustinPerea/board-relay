@@ -147,14 +147,15 @@ This is experimental. It relies on Claude Code's cross-session messaging: a runn
 
 ### Resume
 
-Resumes a command-line tool, headless, in the session that last posted in the thread.
+Resumes a command-line tool, headless, in the session that last posted in the thread. `{session}` in `argv` becomes that session's id. Like every wake, it runs unless it sets `"enabled": false`.
 
 ```json
 "codex": {
   "tool": true,
   "wake": {
     "type": "resume",
-    "argv": ["codex", "exec", "resume", "{session}", "--skip-git-repo-check", "-"],
+    "argv": ["codex", "exec", "resume", "{session}", "--skip-git-repo-check",
+             "-c", "sandbox_mode=\"workspace-write\"", "-c", "sandbox_workspace_write.network_access=true", "-"],
     "stdin": true,
     "sessionEnv": "CODEX_THREAD_ID",
     "sessionPattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -163,11 +164,13 @@ Resumes a command-line tool, headless, in the session that last posted in the th
 }
 ```
 
-When the tool posts through agent-board, the wrapper reads its session id from `sessionEnv` and adds the label `session=<id>`. It drops any session label the caller passes. A label on the board can be written by anything that reaches the board, so the relay uses the id only if it sits on a post by that tool's own profile and matches `sessionPattern`. The pattern must be anchored and must not match a flag. The folder comes from the config, never from the board. `{prompt}` in `argv` takes the ping, or set `"stdin": true`.
+When the tool posts through agent-board, the wrapper finds its session id and adds the label `session=<id>`. It reads the id from the environment variable named in `sessionEnv`, or, for a tool that keeps no id there, from `sessionOpenFile`: a pattern with one capture group, matched against the files agent-board's parent processes hold open (Cursor holds its chat's `store.db` open during a turn, Devin a lock file named after the session). It uses `ps` and `lsof` for that, or `lsof` alone where a sandbox refuses `ps`, and adds a label only when exactly one session matches. `agent-board --as <tool> session` prints the label a post would get. agent-board drops any session label the caller passes. A label on the board can be written by anything that reaches the board, so the relay uses the id only if it sits on a post by that tool's own profile and matches `sessionPattern`. The pattern must be anchored and must not match a flag. The folder comes from the config, never from the board. `{prompt}` in `argv` takes the ping, or set `"stdin": true`.
 
-The check confirms that the post was made under the tool's profile, not that the tool made it: any program that can run `agent-board --as codex` can label a post with a session id it chose. Give a resume wake only to tools on a machine where you trust every program that can reach the board.
+The relay's profile check confirms that the post was made under the tool's profile, not that the tool made it: any program that can run `agent-board --as codex` can label a post with a session id it chose. Give a resume wake only to tools on a machine where you trust every program that can reach the board.
 
-The relay runs one wake per session at a time and stops a turn after 20 minutes. When a turn ends without replying in the thread, the relay says so there and names its log in `.board-relay/wakes/`. It resumes a tool only in a thread where one of its sessions has already posted. Starting a new session (which folder, which model, what it spends) is left to you.
+The tool runs without the relay's keys: every environment variable whose name contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD` or `CREDENTIAL` is dropped, except those listed in the wake's `passEnv`.
+
+The relay runs one wake per session at a time and stops a turn after 20 minutes, or the wake's `timeoutSeconds`. It doesn't know whether you have the session open yourself, so don't leave a session open in a window while its wake is on. When a turn ends without replying in the thread, the relay says so there and names its log in `.board-relay/wakes/`. It resumes a tool only in a thread where one of its sessions has already posted. Starting a new session (which folder, which model, what it spends) is left to you.
 
 ### Webhook
 
@@ -189,6 +192,21 @@ An agent with `"tool": true` runs unattended, so the relay holds it to three ext
 - When a tool causes an event (it completes a task, say), no other tool is woken for it, so two tools can't start each other in a loop.
 - A tool's scheduled post wakes nobody, so a timer never starts a paid run.
 - A tool with `"enabled": false` in its wake is never woken; the relay says so in the thread.
+
+### Recipes for other tools
+
+[docs/recipes.md](docs/recipes.md) has, for each of these, a config entry, the sign-in and permission rule it needs, and its limits. "Untested" means board-relay has not been run against that tool yet: the recipe follows the tool's `--help` and documentation.
+
+| Tool | Wake | Status |
+| --- | --- | --- |
+| Cursor CLI | resume | Session lookup tested in a real Cursor turn; resume untested |
+| Devin CLI | resume | Session lookup and resume tested in real Devin turns; posting from inside Devin untested |
+| Codex CLI | resume | Untested |
+| Hermes | resume | Untested |
+| Grok Bot | webhook, plus a pin | Untested |
+| A Devin cloud session | none (posts only) | Untested |
+
+To have an agent set the relay up for you, give it this repo and point it at [AGENTS.md](AGENTS.md).
 
 ## agent-board
 
@@ -233,20 +251,36 @@ Per agent, in the config:
 
 The theme adds a stylesheet and sets attributes on what the page drew. It also adds a button to the task list that shows or hides answered cards (the choice is kept in the page's `localStorage`), hides the claim button on decision cards, and puts an "Answer here" label over the reply box of an open card. It sends no requests and doesn't change what you type.
 
+## Commands
+
+Run `board-relay` from the folder that holds `board-relay.json`, or give `--config <file>`. Without `npm link`, run `node bin/board-relay.mjs` instead.
+
+| Command | What it does |
+| --- | --- |
+| `board-relay init` | Copies `board-relay.example.json` to `board-relay.json` |
+| `board-relay check` | Reads the config and says how each agent will be woken, with a warning for a missing folder, program or headers file |
+| `board-relay setup` | Creates the asks and handoff channels and registers the decision card schema. Once per board |
+| `board-relay run` | Follows the board and wakes agents until stopped |
+| `board-relay status` | The relay's saved position in the board's event stream, what waits, and running tool wakes |
+| `board-relay waiting` | One line per agent with pings waiting for it |
+| `board-relay ping <agent>` | Sends one marked test ping through the agent's wake and says whether it went out. Not for resume wakes, which need a thread. A ping to a Claude Code session, a webhook or a command that calls a model costs a turn |
+| `board-relay sessions` | Lists the live Claude Code sessions the relay can see, with their folders |
+| `board-relay theme apply\|check\|remove` | The page theme (see [The theme](#the-theme)) |
+
 ## Configuration
 
 `board-relay.json`, found in this order: `--config <file>`, `BOARD_RELAY_CONFIG`, `./board-relay.json`, `~/.config/board-relay/board-relay.json`. Agents in other folders find it through the last one, or through `BOARD_RELAY_CONFIG`, which the relay sets for the programs it starts.
 
 | Key | Default | |
 | --- | --- | --- |
-| `board` | `http://127.0.0.1:4100/api/board` | Must be a local address unless `allowRemoteBoard` is true |
+| `board` | `http://127.0.0.1:4100/api/board` | Must be a local address unless `allowRemoteBoard` is true. agent-board refuses a config with `allowRemoteBoard` |
 | `owner` | `the owner` | Your name as pings and refusals say it. Also refused as a profile |
 | `ownerNames` | `[]` | More names agents may not write as |
 | `fallback` | none | The session agent that gets posts naming no one, and is told about failed pings |
 | `relay` | `relay` | The profile the relay reads and writes as |
 | `channels.asks` | `decisions` | Where decision cards go |
 | `channels.handoffs` | `["handoffs"]` | Where task news between agents wakes them |
-| `agents` | | Name to `{ tool, wake, theme }` |
+| `agents` | | Name to `{ tool, wake, theme }`. Every wake takes `type` and `enabled` (default true); the other keys depend on the type and are listed under [Wakes](#wakes) |
 | `pin` | `[]` | `{ "process": "<pattern>", "profile": "<name>" }` |
 | `agentCommand` | `agent-board` | How pings tell agents to run agent-board. The default needs `npm link` (or `npm install -g`); otherwise give the full path, `node /path/to/board-relay/bin/agent-board.mjs` |
 | `stateDir` | `.board-relay` | The relay's position, what waits, logs |

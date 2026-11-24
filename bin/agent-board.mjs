@@ -11,21 +11,8 @@ import { allPins, ConfigError, configPath, loadConfig } from '../src/config.mjs'
 import { RISKS, card, decide, expandBy, ownSession, parse, pinnedProfile, sessionWrite, withSession } from '../src/guard.mjs';
 import { handoffCheck } from '../src/guard.mjs';
 import { vbArgv, vbEnv } from '../src/vb.mjs';
+import { ancestors, openFiles } from '../src/proc.mjs';
 
-function ancestors(limit = 16) {
-  const out = [];
-  let pid = String(process.pid);
-  for (let i = 0; i < limit; i++) {
-    const r = spawnSync('ps', ['-o', 'ppid=,comm=', '-p', pid], { encoding: 'utf8', timeout: 3000 });
-    const line = (r.stdout ?? '').trim();
-    const m = /^(\d+)\s+(.*)$/.exec(line);
-    if (!m) break;
-    out.push([pid, m[2]]);
-    if (m[1] === '0' || m[1] === '1') break;
-    pid = m[1];
-  }
-  return out;
-}
 
 function vb(args, profile) {
   return spawnSync(process.execPath, vbArgv(args, cfg.board, profile), { env: vbEnv(), stdio: 'inherit' }).status ?? 1;
@@ -54,7 +41,14 @@ if (cfg.allowRemoteBoard) {
 
 const argv = process.argv.slice(2);
 const pins = allPins(cfg, cfgFile);
-const pinned = pins.length ? pinnedProfile(ancestors(), { pins }) : null;
+let chain = null;
+const tree = () => (chain ??= ancestors());
+if (pins.length && !tree().length) {
+  console.error('agent-board: refused. The config pins some programs to one profile, and agent-board could not read its own process tree (both ps and lsof failed), so it cannot tell whether this call comes from one of them.\n  Run agent-board where ps or lsof works, or remove the pin.');
+  process.exit(2);
+}
+const pinned = pins.length ? pinnedProfile(tree(), { pins }) : null;
+const lookup = () => ({ chain: tree(), files: openFiles });
 const err = decide(argv, process.env, cfg, { pinned });
 if (err) {
   console.error(err);
@@ -73,8 +67,8 @@ if (command === 'tasks') {
 }
 
 if (command === 'session') {
-  const sid = profile ? ownSession(profile, cfg, process.env) : null;
-  console.log(sid ? `session=${sid}` : 'no session label: this profile has no resume wake, or its session variable is unset');
+  const sid = profile ? ownSession(profile, cfg, process.env, lookup()) : null;
+  console.log(sid ? `session=${sid}` : 'no session label: this profile has no resume wake, or its session id was not found');
   if (pinned) console.log(`this process tree may write only as ${pinned}`);
   process.exit(0);
 }
@@ -82,7 +76,7 @@ if (command === 'session') {
 if (command === 'ask') process.exit(ask(args.slice(args.indexOf('ask') + 1), profile));
 
 args = expandBy(args, command, userInfo().username);
-if (profile && sessionWrite(args, command)) args = withSession(args, ownSession(profile, cfg, process.env));
+if (profile && sessionWrite(args, command)) args = withSession(args, ownSession(profile, cfg, process.env, lookup()));
 if (profile && !cfg.agents[profile] && command === 'tasks' && args.includes('create'))
   console.error(`agent-board: \`${profile}\` is not in the relay's config, so nothing on this task will wake you.`);
 process.exit(vb(args, profile));
@@ -119,7 +113,7 @@ Puts a question to ${cfg.owner} as a decision card in ${cfg.asks}. One decision 
     return 2;
   }
   const labels = { ...built.labels, from: who };
-  const sid = ownSession(who, cfg, process.env);
+  const sid = ownSession(who, cfg, process.env, lookup());
   if (sid) labels.session = sid; // so the answer can resume the tool's session
   const pairs = Object.entries(labels).map(([k, v]) => `${k}=${v}`);
   if (o['dry-run']) { console.log(`${built.text}\n\nlabels: ${pairs.join(' ')}`); return 0; }

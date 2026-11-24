@@ -204,11 +204,26 @@ export function withSession(argv, sid) {
 
 /** The tool's own session id for a profile with a resume wake, read from its environment; null when there is none
  *  or it has the wrong shape. */
-export function ownSession(profile, cfg, env) {
-  const wake = cfg.agents[profile]?.wake;
-  if (!wake || wake.type !== 'resume' || !wake.sessionEnv) return null;
-  const sid = env[wake.sessionEnv];
-  return typeof sid === 'string' && wake.sessionPattern.test(sid) ? sid : null;
+export function ownSession(profile, cfg, env, { chain = [], files = () => [] } = {}) {
+  try {
+    const wake = cfg.agents[profile]?.wake;
+    if (!wake || wake.type !== 'resume') return null;
+    let sid = null;
+    if (wake.sessionEnv) sid = env[wake.sessionEnv];
+    else if (wake.sessionOpenFile) {
+      // A tool that keeps no id in its shell's environment (Cursor, Devin) holds a file named after the session
+      // open while a turn runs. Exactly one distinct id among the files this process tree holds counts.
+      const found = new Set();
+      for (const [pid] of chain) for (const f of files(pid)) {
+        const m = wake.sessionOpenFile.exec(f);
+        if (m?.[1]) found.add(m[1]);
+      }
+      if (found.size === 1) [sid] = found;
+    }
+    return typeof sid === 'string' && wake.sessionPattern.test(sid) ? sid : null;
+  } catch {
+    return null; // a failed lookup leaves the post without a label; it never stops the post
+  }
 }
 
 /** The one profile this process tree may use, or null. chain: [[pid, command path]] from this process up. */

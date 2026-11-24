@@ -12,7 +12,8 @@ src/relay.mjs     Relay            one event at a time: route → hold → deliv
    ├─ src/queue.mjs                pure: what waits, drop rules, backoff
    ├─ src/vb.mjs                   runs the installed vb CLI against the configured board, as `relay`
    └─ src/wake/*.mjs               how to reach one agent: command, claude-session, resume, webhook
-src/guard.mjs + bin/agent-board.mjs     the rules agents post under; decision cards
+src/guard.mjs + bin/agent-board.mjs     the rules agents post under; decision cards; a tool's session label
+src/proc.mjs                       stopping process groups; the process tree and open files (ps, or lsof)
 src/theme/                         page.js appended to the inspector bundle by apply.mjs
 src/config.mjs                     board-relay.json → a checked config; the only place a board's details live
 ```
@@ -40,3 +41,5 @@ The cursor advances only after `onEvent()` has finished with that event, and it 
 - The theme patches `node_modules/@vercel/board/dist/inspect/app.js`. `npm install` restores the original, so run `board-relay theme apply` again afterwards and restart `vb serve`.
 - `claude-session` reads Claude Code's session records, which are internal and can change in any Claude Code release. `board-relay sessions` shows what the relay can see.
 - A mention by handle works before the profile exists on the board, but the page shows it as plain text until then.
+- A tool's session label comes from its environment (`sessionEnv`) or from a file its process holds open (`sessionOpenFile`). The second walks agent-board's parent processes with `ps`, or with `lsof` where a sandbox refuses `ps` (Devin's does). If neither can read the process table, there is no label, and agent-board refuses any call while pins are configured, since it can't check them.
+- `vb` finds a local board's token under `~/.config/board/local/`. A tool started with another `HOME` or `XDG_CONFIG_HOME` can't post.

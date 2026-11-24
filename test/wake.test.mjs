@@ -497,3 +497,8 @@ test('command: a program that ignores SIGTERM is killed, and the delivery still 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a resumed tool gets no key-like variables unless its wake passes them', () => {
+  const env = resume.wakeEnv({ PATH: '/bin', HOME: '/h', OPENAI_API_KEY: 'k', GH_TOKEN: 't', DB_PASSWORD: 'p', CODEX_THREAD_ID: 'x' }, ['OPENAI_API_KEY']);
+  assert.deepEqual(env, { PATH: '/bin', HOME: '/h', OPENAI_API_KEY: 'k', CODEX_THREAD_ID: 'x' });
+});

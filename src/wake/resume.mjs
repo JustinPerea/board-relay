@@ -56,6 +56,16 @@ export function procStart(pid) {
 const lastId = (messages) => Math.max(0, ...Object.keys(messages).map(num));
 
 /** Start the resumed turn in the background and return its record (the caller saves it). */
+// Names that look like credentials. A woken tool signs in its own way (its login, a keychain, its config folder),
+// so the relay's own keys and tokens are not passed to it unless the wake lists them in passEnv.
+export const SECRET_NAME = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i;
+
+export function wakeEnv(env, passEnv = []) {
+  const out = {};
+  for (const [k, v] of Object.entries(env)) if (!SECRET_NAME.test(k) || passEnv.includes(k)) out[k] = v;
+  return out;
+}
+
 export async function startWake(agent, sid, items, prompt, cfg, { read, configFile, env = process.env, running }) {
   const wake = cfg.agents[agent].wake;
   const { argv, stdin } = wakeArgv(wake, sid, prompt);
@@ -68,7 +78,7 @@ export async function startWake(agent, sid, items, prompt, cfg, { read, configFi
   for (const t of threads) before[t] = lastId((await read(t)).messages);
   const fd = openSync(log, 'w', 0o600);
   // the tool's own environment minus anything that would point vb elsewhere or lend it another identity
-  const childEnv = { ...vbEnv(env), BOARD_URL: cfg.board, ...(configFile ? { BOARD_RELAY_CONFIG: configFile } : {}) };
+  const childEnv = { ...wakeEnv(vbEnv(env), wake.passEnv), BOARD_URL: cfg.board, ...(configFile ? { BOARD_RELAY_CONFIG: configFile } : {}) };
   delete childEnv.NO_COLOR;
   let child;
   try {
