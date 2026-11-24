@@ -79,8 +79,9 @@ before(async () => {
     },
   }));
   const file = join(dir, 'board-relay.json');
-  const setup = spawnSync(process.execPath, [join(root, 'bin/board-relay.mjs'), 'setup', '--config', file], { encoding: 'utf8' });
-  assert.equal(setup.status, 0, setup.stdout + setup.stderr);
+  const setup = spawnSync(process.execPath, [join(root, 'bin/board-relay.mjs'), 'setup', '--config', file],
+    { encoding: 'utf8', timeout: 60000 });
+  assert.equal(setup.status, 0, `board-relay setup: ${setup.error ?? ''} ${setup.signal ?? ''}\n${setup.stdout}${setup.stderr}`);
   relay = new Relay(loadConfig(file), { configFile: file });
   running = relay.run({ signal: ac.signal });
   // The relay starts at the board's head on its first run. Give the event stream a moment to open.
