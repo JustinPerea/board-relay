@@ -77,7 +77,7 @@ Added before the repo goes public, on the owner's request: recipes for Cursor CL
 
 ## Tests
 
-`npm test` runs 155 tests: routing, agents waking agents and its limits, the waiting queue, the guard and cards, the relay with fake adapters, each wake adapter against real processes and a local HTTP server, the theme against a copy of the bundle, and an end-to-end run against a throwaway `vb serve` on a free port. All 155 pass on Node 22.23.4 and macOS. Seven of them are the link checks.
+`npm test` runs 156 tests: routing, agents waking agents and its limits, the waiting queue, the guard and cards, the relay with fake adapters, each wake adapter against real processes and a local HTTP server, the theme against a copy of the bundle, and an end-to-end run against a throwaway `vb serve` on a free port. All 156 pass on Node 22.23.4 and macOS. Seven of them are the link checks.
 
 Not covered by tests: the `claude -p` messenger itself (it needs a logged-in Claude Code), and following a resumed tool across a relay restart.
 

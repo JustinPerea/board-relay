@@ -342,3 +342,12 @@ test('relay: an agent removed from the config while an event is read is skipped,
   const pairs = routeAgentPost(ev(post(1, as('lead'), { text: '@helper @scribe go' })), {}, s.cfg);
   assert.deepEqual(s.relay.admitAgentPosts(pairs, fewer, notices).map(([a]) => a), ['scribe']);
 });
+
+test('relay: a tool-to-tool notice doesn\'t silence the opt-out notice for the same tool', async () => {
+  const s = setup();
+  await s.feed(post(1, as('eager'), { text: '@hook run it' }));
+  await s.feed(post(2, as('lead'), { re: '1', text: '@hook you too' }));
+  assert.equal(s.rec.replies.length, 2);
+  assert.match(s.rec.replies[0].text, /A tool's post never wakes another tool/);
+  assert.match(s.rec.replies[1].text, /`hook` is a tool, and the relay wakes a tool for an agent's post only when/);
+});

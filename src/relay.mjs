@@ -141,8 +141,9 @@ export class Relay {
       const fromTool = entry.tool && causedByTool(item, cfg);
       if (!entry.wakeOnAgentPosts || fromTool) {
         const told = limits.threadOf(st, item.thread, now).told;
-        if (told.includes(agent)) continue;
-        told.push(agent);
+        const key = fromTool ? `${agent}:tool` : agent; // the two notices say different things
+        if (told.includes(key)) continue;
+        told.push(key);
         this.note(`not woken agent=${agent} thread=${item.thread}: ${fromTool ? 'a tool\'s post' : 'it takes no wakes from agents\' posts'}`);
         notices.push([item.thread, fromTool
           ? `Relay: \`${agent}\` was not woken. A tool's post never wakes another tool, so two tools can't start each other in a loop.`
